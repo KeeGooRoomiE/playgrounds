@@ -40,6 +40,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Catches what a successful build won't: a mistyped frontmatter access,
+      # a component prop that no longer exists, a bad type in an island's
+      # script. Astro builds happily through most of these.
+      - name: Type-check
+        run: npm run check
+
       # Same invocation the PR template asks contributors to run locally, so a
       # green check here means the same thing their terminal told them.
       - name: Build with the production base path

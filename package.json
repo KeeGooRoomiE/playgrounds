@@ -11,7 +11,9 @@
     "preview": "astro preview",
     "astro": "astro",
     "scaffold": "node scripts/scaffold-playground.mjs",
-    "thumbnail": "node scripts/capture-thumbnail.mjs"
+    "thumbnail": "node scripts/capture-thumbnail.mjs",
+    "og": "node scripts/make-og-image.mjs",
+    "check": "astro check"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.3",
@@ -20,6 +22,8 @@
     "astro": "^5.17.1"
   },
   "devDependencies": {
-    "playwright": "^1.58.2"
+    "@astrojs/check": "^0.9.10",
+    "playwright": "^1.58.2",
+    "typescript": "^5.9.3"
   }
 }

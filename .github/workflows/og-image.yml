@@ -1,0 +1,141 @@
+name: Regenerate OG Image
+
+# The site root's link-preview card. Unlike playground thumbnails, this one is
+# safe to regenerate on demand: it's HTML → PNG with no canvas and no
+# randomness, so the same config always produces the same image.
+#
+# Leave the inputs empty to render straight from og-image.config.json. Fill one
+# in to try a variant without touching the file — useful for eyeballing wording
+# before committing to it.
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: "Override title (blank = use og-image.config.json)"
+        required: false
+        default: ""
+      tagline:
+        description: "Override tagline"
+        required: false
+        default: ""
+      icon:
+        description: "Path to an icon committed in the repo, e.g. public/favicon.svg"
+        required: false
+        default: ""
+      accent:
+        description: "Override accent colour, e.g. #0066cc"
+        required: false
+        default: ""
+      commit:
+        description: "Commit the result to main (otherwise: artifact only)"
+        type: boolean
+        required: false
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: og-image
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    permissions:
+      # Only what the `commit` input can actually need. The job still runs
+      # fine with commit=false; nothing else here writes.
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      # Full install — the renderer needs Playwright, which is a devDependency.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get installed Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright'].version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright OS dependencies only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # Inputs go through env: and are quoted — interpolating them into the
+      # run: script would splice raw dispatch text into the shell. Each is
+      # passed as a flag only when non-empty, so a blank input falls through
+      # to the config file instead of blanking the field.
+      - name: Render og-image.png
+        env:
+          IN_TITLE: ${{ inputs.title }}
+          IN_TAGLINE: ${{ inputs.tagline }}
+          IN_ICON: ${{ inputs.icon }}
+          IN_ACCENT: ${{ inputs.accent }}
+        run: |
+          set -euo pipefail
+
+          # Explicit `if` rather than `[ -n x ] && args+=(...)`: under `set -e`
+          # a trailing false test in an AND-list is a footgun waiting for
+          # whoever edits this next.
+          args=()
+          if [ -n "$IN_TITLE" ]; then   args+=(--title   "$IN_TITLE"); fi
+          if [ -n "$IN_TAGLINE" ]; then args+=(--tagline "$IN_TAGLINE"); fi
+          if [ -n "$IN_ACCENT" ]; then  args+=(--accent  "$IN_ACCENT"); fi
+
+          if [ -n "$IN_ICON" ]; then
+            # The icon is read off the checkout, so it must be a path inside
+            # the repo — reject anything trying to climb out of it.
+            case "$IN_ICON" in
+              /*|*..*) echo "Icon must be a relative path inside the repo: $IN_ICON" >&2; exit 1 ;;
+            esac
+            if [ ! -f "$IN_ICON" ]; then
+              echo "Icon not found in repo: $IN_ICON" >&2
+              exit 1
+            fi
+            args+=(--icon "$IN_ICON")
+          fi
+
+          npm run og -- "${args[@]}"
+
+      - name: Upload rendered image
+        uses: actions/upload-artifact@v7
+        with:
+          name: og-image-${{ github.run_number }}
+          path: public/og-image.png
+          retention-days: 14
+
+      - name: Commit to main
+        if: inputs.commit
+        env:
+          IN_TITLE: ${{ inputs.title }}
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- public/og-image.png; then
+            echo "Rendered image is identical to the committed one — nothing to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/og-image.png
+          git commit -m "Regenerate OG image${IN_TITLE:+ (title: $IN_TITLE)}"
+          git push
