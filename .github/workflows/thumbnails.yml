@@ -61,15 +61,14 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
 
-      # GITHUB_REPOSITORY is set automatically on every runner, which makes
-      # astro.config.mjs resolve `base` to /<repo> — and then `astro preview`
-      # serves the site under that prefix while capture-thumbnail.mjs requests
-      # root-level URLs, so every capture 404s. Blanking it here builds exactly
-      # what a local `npm run build` produces, which is what capture expects.
-      # The base path has no bearing on a screenshot of a canvas.
-      - name: Build site (no base path — capture uses root-level URLs)
-        env:
-          GITHUB_REPOSITORY: ""
+      # On a runner GITHUB_REPOSITORY is always set, so astro.config.mjs
+      # resolves `base` to /<repo> and both the build and `astro preview` live
+      # under that prefix. It cannot be turned off from here: GitHub reserves
+      # the GITHUB_ prefix and re-injects those variables, so a step-level
+      # `env: GITHUB_REPOSITORY: ""` silently does nothing (verified — the
+      # preview still announced /playgrounds). So instead of fighting the base
+      # path, the capture below is pointed at it.
+      - name: Build site
         run: npm run build
 
       # Start and wait in ONE step. A bare `npx astro preview &` in its own
@@ -79,7 +78,7 @@ jobs:
       # is the difference between "never came up" and knowing why.
       - name: Start preview server
         env:
-          GITHUB_REPOSITORY: ""
+          SITE_URL: http://localhost:4321/${{ github.event.repository.name }}
         run: |
           set -uo pipefail
 
@@ -87,8 +86,8 @@ jobs:
           echo $! > /tmp/preview.pid
 
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:4321/ > /dev/null 2>&1; then
-              echo "Preview server up after ${i}s"
+            if curl -sf "$SITE_URL/" > /dev/null 2>&1; then
+              echo "Preview server up after ${i}s at $SITE_URL/"
               exit 0
             fi
             # Fail fast rather than burning the full timeout on a dead process.
@@ -110,7 +109,9 @@ jobs:
       # minute failing on a URL that was never going to exist.
       - name: Capture thumbnail(s)
         env:
-          PLAYGROUNDS_BASE_URL: http://localhost:4321
+          # Includes the base path the build actually served under — see the
+          # note on the build step above.
+          PLAYGROUNDS_BASE_URL: http://localhost:4321/${{ github.event.repository.name }}
           SLUG: ${{ inputs.slug }}
         run: |
           set -euo pipefail
