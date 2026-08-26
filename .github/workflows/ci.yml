@@ -1,0 +1,93 @@
+name: CI
+
+# Nothing validated pull requests before this: deploy.yml only runs on push to
+# main, so a PR could sit green-looking and break the site on merge.
+#
+# `pull_request` (not `pull_request_target`) is deliberate — it checks out the
+# PR's code with a read-only token and no access to secrets, so a fork's build
+# script can't reach anything. Never switch this to pull_request_target.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Same invocation the PR template asks contributors to run locally, so a
+      # green check here means the same thing their terminal told them.
+      - name: Build with the production base path
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: npm run build
+
+      # Frontmatter can reference a thumbnail that was never committed. That
+      # doesn't fail the build — it produces a page whose og:image 404s, which
+      # is invisible until someone shares the link. Catch it here instead.
+      - name: Check every entry's thumbnail and island resolve
+        run: |
+          # Named `fail`, not `status` — the latter is a read-only builtin in
+          # zsh, which makes this snippet unrunnable when pasted into a local
+          # shell to debug it.
+          set -uo pipefail
+          fail=0
+
+          for f in src/content/playgrounds/*.md; do
+            slug=$(basename "$f" .md)
+
+            thumb=$(sed -n 's/^thumbnail:[[:space:]]*//p' "$f" | head -1 | tr -d '"'"'"' ')
+            if [ -z "$thumb" ]; then
+              echo "::error file=$f::$slug has no thumbnail field"; fail=1
+            elif [ ! -f "public${thumb}" ]; then
+              echo "::error file=$f::$slug references missing thumbnail public${thumb}"; fail=1
+            fi
+
+            # Keys in the registry are quoted only when they have to be
+            # (`'perlin-noise':` but bare `boids:`), so the quotes are optional
+            # in this pattern — matching only the quoted form silently passed
+            # every dashless slug.
+            island=$(sed -n 's/^island:[[:space:]]*//p' "$f" | head -1 | tr -d '"'"'"' ')
+            if ! grep -qE "^[[:space:]]*'?${island}'?[[:space:]]*:" src/islands/index.ts; then
+              echo "::error file=$f::$slug island '${island}' is not registered in src/islands/index.ts"; fail=1
+            fi
+
+            category=$(sed -n 's/^category:[[:space:]]*//p' "$f" | head -1 | tr -d '"'"'"' ')
+            if ! sed -n 's/^tags:[[:space:]]*//p' "$f" | head -1 | grep -q "\b${category}\b"; then
+              echo "::error file=$f::$slug category '${category}' is not listed in its tags"; fail=1
+            fi
+          done
+
+          # The index's og:image falls back to this file when a page sets no
+          # image of its own; it going missing is silent until shared.
+          if [ ! -f public/og-image.png ]; then
+            echo "::error::public/og-image.png is missing — the site root's link preview will have no image"; fail=1
+          fi
+
+          [ $fail -eq 0 ] && echo "All entries check out."
+          exit $fail

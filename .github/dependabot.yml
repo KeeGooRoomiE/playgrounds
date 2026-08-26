@@ -1,0 +1,33 @@
+version: 2
+
+# Added after an audit found every action 2–3 majors behind, which is what
+# produced the "Node.js 20 is deprecated" warnings on every run. Keeping these
+# current by hand doesn't happen; this does it.
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore"
+    labels:
+      - dependencies
+    groups:
+      # Astro's own packages move together; separate PRs for each just means
+      # more merges for the same upgrade.
+      astro:
+        patterns:
+          - "astro"
+          - "@astrojs/*"
+      fonts:
+        patterns:
+          - "@fontsource*"

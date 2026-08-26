@@ -65,18 +65,59 @@ content.config.ts validates frontmatter
 
 ## CI/CD
 
+Three workflows, each with a distinct trigger:
+
 ```
-push → main
+pull_request → main          ci.yml
+  └─ npm ci → build with production base path → content integrity check
+
+push → main                  ci.yml (same checks) + deploy.yml
   │
-  ▼
-npm ci → npm run build (astro build) → upload-pages-artifact → actions/deploy-pages
+  ▼  deploy.yml
+npm ci --omit=dev → npm run build → upload-pages-artifact → deploy-pages
   │
-  └─ notify_telegram (optional job; no-op without PIPLINE_BOT_SECRET/CHAT_ID repo secrets)
+  └─ notify_telegram (optional; no-op without PIPLINE_BOT_SECRET/CHAT_ID)
+
+workflow_dispatch            thumbnails.yml
+  └─ full install → Playwright → capture → upload artifact (never auto-commits)
 ```
 
-No Playwright/Chrome step in the deploy workflow — thumbnails are static, committed files, not regenerated on every build.
+**`ci.yml`** is the gate for pull requests — `deploy.yml` only fires on push to
+main, so without this a PR would look green while breaking the site on merge. It
+uses `pull_request`, never `pull_request_target`: a fork's build script runs with
+a read-only token and no access to secrets. Besides the build it runs a content
+integrity check that the build itself can't catch — a `thumbnail` pointing at a
+file that was never committed still builds fine, it just produces a page whose
+`og:image` 404s, invisible until someone shares the link. It also verifies each
+entry's `island` key is registered and its `category` appears in its own `tags`.
 
-A second, manually-triggered workflow, `.github/workflows/thumbnails.yml`, exists to (re)capture thumbnails in a clean-room environment on demand: build → boot a preview server → Playwright screenshot → upload as a downloadable artifact (not auto-committed — see `docs/CREATING_A_PLAYGROUND.md` for why). Capture is deterministic: islands with randomness read a `?seed=` query param (`src/lib/seed.ts`), and the capture script always passes `?seed=kgrm_s121`.
+**`deploy.yml`** has no Playwright/Chrome step — thumbnails are static committed
+files, not regenerated per build — and installs with `--omit=dev` for that
+reason.
+
+**`thumbnails.yml`** re-captures thumbnails in a clean room on demand: build →
+preview server → Playwright screenshot → downloadable artifact (never
+auto-committed; see `docs/CREATING_A_PLAYGROUND.md` for why). Capture is
+deterministic: islands with randomness read `?seed=` (`src/lib/seed.ts`) and the
+script always passes `?seed=kgrm_s121`. It blanks `GITHUB_REPOSITORY` for its
+build and preview steps — the runner sets that variable automatically, which
+would resolve `base` to `/<repo>` and make `astro preview` serve under that
+prefix while the capture script requests root-level URLs.
+
+### Workflow conventions
+
+- **Every dynamic value goes through an `env:` block**, never `${{ }}` spliced
+  directly into a `run:` script — expression interpolation happens before the
+  shell parses anything, so an inline dispatch input is a command-injection
+  vector, not a string.
+- **Permissions are per-job, default-deny.** Each workflow starts
+  `permissions: {}`; a job adds only what it needs (`contents: read` to build,
+  `pages: write` + `id-token: write` only on the deploy job).
+- **`persist-credentials: false` on every checkout.** `npm ci` executes
+  dependency lifecycle scripts; there's no reason for a usable token to be
+  sitting in `.git/config` while that happens. Nothing here pushes.
+- **Action versions are kept current by Dependabot** (`.github/dependabot.yml`,
+  monthly, grouped). Left alone they drift into runner deprecation warnings.
 
 ## Environment variables
 

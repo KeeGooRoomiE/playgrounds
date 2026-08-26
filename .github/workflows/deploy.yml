@@ -6,10 +6,9 @@ on:
       - main
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+# No workflow-level permissions block: each job declares only what it needs,
+# so the Telegram job never sees a token that can write to Pages.
+permissions: {}
 
 concurrency:
   group: "pages"
@@ -18,20 +17,26 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          # `npm ci` runs dependency lifecycle scripts; don't leave a usable
+          # credential in .git/config while that happens. Nothing here pushes.
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "npm"
 
-      # --omit=dev skips Playwright (~10 MB, the only devDependency). Deploy
-      # never captures thumbnails — that's the separate thumbnails.yml
-      # workflow, which does a full install because it genuinely needs it.
+      # --omit=dev skips Playwright (the only devDependency, ~10 MB). Deploy
+      # never captures thumbnails — that's thumbnails.yml, which does a full
+      # install because it genuinely needs the browser.
       - name: Install dependencies
         run: npm ci --omit=dev
 
@@ -39,13 +44,16 @@ jobs:
         run: npm run build
 
       - name: Upload build artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -53,14 +61,18 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   notify_telegram:
     needs: [build, deploy]
     if: always()
     runs-on: ubuntu-latest
+    permissions: {}
 
     steps:
+      # Every dynamic value goes through `env:` and is referenced as a shell
+      # variable. Interpolating `${{ }}` straight into `run:` would splice the
+      # raw text into the script before the shell ever sees it.
       - name: Notify Telegram
         env:
           BOT_TOKEN:     ${{ secrets.PIPLINE_BOT_SECRET }}
@@ -73,6 +85,8 @@ jobs:
           OWNER:         ${{ github.repository_owner }}
           REPO_NAME:     ${{ github.event.repository.name }}
         run: |
+          set -euo pipefail
+
           if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
             echo "No telegram secrets, skipping notification"
             exit 0
@@ -88,6 +102,10 @@ jobs:
             TEXT="@${ACTOR}%0A❌ Deploy failed!%0ABranch: ${BRANCH}%0ACommit: ${SHORT_SHA}"
           fi
 
-          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+          # --fail-with-body so a Telegram API error fails the step loudly
+          # instead of passing silently; -o /dev/null keeps the response
+          # (which echoes the chat id) out of the log.
+          curl -sS --fail-with-body -o /dev/null \
+            -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
             -d chat_id="${CHAT_ID}" \
             -d text="$TEXT"

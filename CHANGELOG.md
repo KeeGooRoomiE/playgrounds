@@ -6,6 +6,22 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — 2026-08-26
+
+### Added
+- `ci.yml` — builds every pull request (nothing validated PRs before; `deploy.yml` only runs on push to main) and runs a content integrity check for problems the build can't catch: a `thumbnail` pointing at an uncommitted file, an unregistered `island` key, a `category` missing from its own `tags`, or a missing `og-image.png`.
+- `.github/dependabot.yml` — monthly grouped updates for GitHub Actions and npm.
+
+### Changed
+- All actions bumped to current majors (`checkout@v7`, `setup-node@v7`, `cache@v6`, `upload-artifact@v7`, `upload-pages-artifact@v5`, `deploy-pages@v5`); they were 2–3 majors behind, which is what produced the "Node.js 20 is deprecated" warnings on every run.
+- Permissions are now per-job and default-deny (`permissions: {}` at workflow level) instead of one workflow-wide grant that also handed Pages write access to the Telegram job.
+- `persist-credentials: false` on every checkout, so no usable token sits in `.git/config` while `npm ci` runs dependency lifecycle scripts.
+- Telegram notification uses `curl --fail-with-body` and discards the response body, so an API error fails the step loudly instead of passing silently, and the chat id stops being echoed into the log.
+
+### Fixed
+- **Command injection in `thumbnails.yml`**: the dispatch input was interpolated straight into the shell (`npm run thumbnail -- ${{ ... }}`). Interpolation happens before the shell parses the script, so a dispatched value could run arbitrary commands on the runner. Now passed via `env:`, quoted, and validated against `^[a-z0-9][a-z0-9-]*$` plus an existence check.
+- `thumbnails.yml` could never have worked: its default input `all` was passed as a literal slug (the script's flag is `--all`), and the runner's automatic `GITHUB_REPOSITORY` made `astro preview` serve under `/<repo>/` while the capture script requested root-level URLs — every capture would have 404'd. Both fixed.
+
 ## [0.2.0] — 2026-08-26
 
 ### Added

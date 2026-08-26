@@ -15,15 +15,26 @@ on:
         required: false
         default: "all"
 
+permissions: {}
+
+concurrency:
+  group: thumbnails-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   capture:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           cache: "npm"
@@ -37,7 +48,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
@@ -50,10 +61,20 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
 
-      - name: Build site
+      # GITHUB_REPOSITORY is set automatically on every runner, which makes
+      # astro.config.mjs resolve `base` to /<repo> — and then `astro preview`
+      # serves the site under that prefix while capture-thumbnail.mjs requests
+      # root-level URLs, so every capture 404s. Blanking it here builds exactly
+      # what a local `npm run build` produces, which is what capture expects.
+      # The base path has no bearing on a screenshot of a canvas.
+      - name: Build site (no base path — capture uses root-level URLs)
+        env:
+          GITHUB_REPOSITORY: ""
         run: npm run build
 
       - name: Start preview server
+        env:
+          GITHUB_REPOSITORY: ""
         run: npx astro preview --port 4321 &
 
       - name: Wait for preview server
@@ -65,13 +86,34 @@ jobs:
           echo "Preview server never came up" >&2
           exit 1
 
+      # SLUG goes through `env:` and is quoted, so a dispatched value can only
+      # ever be one argv element — never spliced into the shell. The regex is
+      # belt-and-braces: it also rejects a typo before Playwright spends a
+      # minute failing on a URL that was never going to exist.
       - name: Capture thumbnail(s)
         env:
           PLAYGROUNDS_BASE_URL: http://localhost:4321
-        run: npm run thumbnail -- ${{ github.event.inputs.slug || 'all' }}
+          SLUG: ${{ inputs.slug }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$SLUG" ] || [ "$SLUG" = "all" ]; then
+            # The script's flag is --all; a bare "all" would be taken as a slug.
+            npm run thumbnail -- --all
+          else
+            if ! printf '%s' "$SLUG" | grep -qE '^[a-z0-9][a-z0-9-]*$'; then
+              echo "Refusing slug '$SLUG' — expected lowercase letters, digits and dashes." >&2
+              exit 1
+            fi
+            if [ ! -f "src/content/playgrounds/${SLUG}.md" ]; then
+              echo "No such playground: src/content/playgrounds/${SLUG}.md" >&2
+              exit 1
+            fi
+            npm run thumbnail -- "$SLUG"
+          fi
 
       - name: Upload thumbnails artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: thumbnails-${{ github.run_number }}
           path: public/thumbnails/*.png
