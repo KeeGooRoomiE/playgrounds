@@ -80,6 +80,9 @@ npm ci --omit=dev → npm run build → upload-pages-artifact → deploy-pages
 
 workflow_dispatch            thumbnails.yml
   └─ full install → Playwright → capture → upload artifact (never auto-commits)
+
+workflow_dispatch            og-image.yml
+  └─ render card from og-image.config.json → artifact (+ commit, if asked)
 ```
 
 **`ci.yml`** is the gate for pull requests — `deploy.yml` only fires on push to
@@ -99,10 +102,28 @@ reason.
 preview server → Playwright screenshot → downloadable artifact (never
 auto-committed; see `docs/CREATING_A_PLAYGROUND.md` for why). Capture is
 deterministic: islands with randomness read `?seed=` (`src/lib/seed.ts`) and the
-script always passes `?seed=kgrm_s121`. It blanks `GITHUB_REPOSITORY` for its
-build and preview steps — the runner sets that variable automatically, which
-would resolve `base` to `/<repo>` and make `astro preview` serve under that
-prefix while the capture script requests root-level URLs.
+script always passes `?seed=kgrm_s121`.
+
+**`og-image.yml`** regenerates the site root's link-preview card. Unlike
+thumbnails this one is safe on demand — `scripts/make-og-image.mjs` renders HTML
+to PNG with no canvas and no randomness, so the same config always produces the
+same image. Text, colours and an optional icon live in `og-image.config.json`;
+dispatch inputs override any field for a one-off. It always uploads an artifact
+and commits to `main` only when the `commit` input is set.
+
+### Two runner behaviours worth knowing before editing these
+
+- **`GITHUB_REPOSITORY` can't be overridden.** GitHub reserves the `GITHUB_`
+  prefix and re-injects those variables, so a step-level `env:` entry for one is
+  silently ignored. On a runner that variable is always set, so `base` always
+  resolves to `/<repo>` and `astro preview` serves under that prefix — which is
+  why `thumbnails.yml` points its readiness check and `PLAYGROUNDS_BASE_URL` at
+  the base path rather than trying to strip it.
+- **A backgrounded process doesn't survive its step.** `npx astro preview &` in
+  its own step dies when that step's shell exits. The server is started and
+  waited for inside a single step, detached with `nohup` and its output
+  redirected to a file, which is also what makes a failure report the server's
+  own log instead of a bare timeout.
 
 ### Workflow conventions
 

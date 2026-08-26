@@ -13,6 +13,9 @@ Versioning: [Semantic Versioning](https://semver.org/).
 - `.github/workflows/og-image.yml` — dispatchable regeneration with optional title/tagline/icon/accent overrides. Always uploads an artifact; commits to main only when explicitly asked. Icon paths are validated to stay inside the repo.
 - `npm run check` (`astro check`, with `@astrojs/check` + `typescript` as devDependencies) wired into `ci.yml` — catches mistyped frontmatter access and stale component props, which an Astro build passes straight through. Currently 0 errors, 0 warnings.
 
+### Fixed
+- `thumbnails.yml` failed on its first two real runs, both only visible by dispatching it. The preview server was started with a bare `&` in its own step and died with that step's shell, so the wait step found nothing listening; start and wait now happen in one step, detached with `nohup`, and a failure prints the server's own log rather than a bare timeout. Then the run revealed that the `GITHUB_REPOSITORY: ""` override added to strip the base path is a no-op — GitHub reserves the `GITHUB_` prefix and re-injects those variables — so capture is now pointed at the base path instead of trying to remove it. Verified end to end: the workflow now completes and uploads a correct artifact.
+
 ## [0.3.0] — 2026-08-26
 
 ### Added
