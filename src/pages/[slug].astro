@@ -1,0 +1,118 @@
+---
+import { getCollection, render } from 'astro:content';
+import type { CollectionEntry } from 'astro:content';
+import Layout from '../components/Layout.astro';
+import { islands } from '../islands';
+import { backgrounds } from '../components/backgrounds';
+
+export async function getStaticPaths() {
+  const entries = (await getCollection('playgrounds')).sort((a, b) => {
+    if (a.data.order !== b.data.order) return a.data.order - b.data.order;
+    return a.data.title.localeCompare(b.data.title);
+  });
+
+  return entries.map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+interface Props {
+  entry: CollectionEntry<'playgrounds'>;
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const Island = islands[entry.data.island];
+const Background = entry.data.background ? backgrounds[entry.data.background] : undefined;
+---
+
+<Layout
+  title={entry.data.title}
+  description={entry.data.description}
+  ogImage={entry.data.thumbnail}
+  background={Background}
+>
+  <div class="container page">
+    <!-- The page's only navigation: one way out, back to the index. -->
+    <a class="back-link" href={`${base}/`}>← Back to all playgrounds</a>
+
+    <div class="hero">
+      <h1>{entry.data.title}</h1>
+      <p class="hero-subtitle">{entry.data.description}</p>
+    </div>
+
+    <!-- Body: What Is X / How It Works / ... — every prose section from the
+         content entry, in full, before the interactive part. -->
+    <Content />
+
+    <!-- The playground itself comes last, after the write-up. -->
+    {Island && <Island />}
+
+    <p class="info-box">
+      Originally built as a standalone project:
+      {' '}
+      <a href={entry.data.sourceRepo} target="_blank" rel="noopener noreferrer">{entry.data.sourceRepo}</a>
+    </p>
+  </div>
+
+  <button type="button" class="to-top" id="to-top" aria-label="Back to top" hidden>↑</button>
+</Layout>
+
+<style>
+  .back-link {
+    display: inline-block;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent);
+  }
+  .back-link:hover { text-decoration: underline; }
+
+  .to-top {
+    position: fixed;
+    right: 28px;
+    bottom: 28px;
+    z-index: 30;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+    margin: 0;
+    border-radius: 50%;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--accent);
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  }
+  .to-top:hover { border-color: var(--accent); background: var(--code-bg); }
+  .to-top[hidden] { display: none; }
+
+  /* Desktop only — on a phone the button would sit on top of the canvas
+     controls, and the scroll distance to the top is short anyway. */
+  @media (max-width: 960px) {
+    .to-top { display: none !important; }
+  }
+</style>
+
+<script>
+  const toTop = document.getElementById('to-top');
+  if (toTop) {
+    const THRESHOLD = 1280;
+
+    function sync() {
+      toTop!.hidden = window.scrollY < THRESHOLD;
+    }
+
+    toTop.addEventListener('click', () => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    window.addEventListener('scroll', sync, { passive: true });
+    sync();
+  }
+</script>

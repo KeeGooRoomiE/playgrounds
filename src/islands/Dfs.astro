@@ -1,0 +1,380 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Maze</div>
+      <button type="button" class="btn" id="dfs-generate">🎲 Generate maze</button>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Mode</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="toggle-row">
+          <span class="toggle-label">Animate traversal</span>
+          <label class="toggle"><input type="checkbox" id="dfs-toggle-animate" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Step-by-step (165ms)</span>
+          <label class="toggle"><input type="checkbox" id="dfs-toggle-step" /><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="dfs-run">▶ Run DFS</button>
+      <button type="button" class="btn" id="dfs-step" disabled>→ Next step</button>
+      <button type="button" class="btn" id="dfs-clear">Clear path</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Stack ops</span><span class="stat-val" id="dfs-stat-ops">—</span></div>
+      <div class="stat-row"><span>Cells visited</span><span class="stat-val" id="dfs-stat-visited">—</span></div>
+      <div class="stat-row"><span>Path length</span><span class="stat-val" id="dfs-stat-path">—</span></div>
+      <div class="stat-row"><span>Status</span><span class="stat-val" id="dfs-stat-status">Ready</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Legend</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#22c55e"></span> Start</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> End</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#1e293b"></span> Wall</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#fecaca"></span> Visited</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f87171"></span> On stack (frontier)</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Path found</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap">
+      <canvas id="dfs-canvas"></canvas>
+    </div>
+    <div class="step-info" id="dfs-step-info"></div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  /* max-width keeps the canvas from propping its own wrapper open: the island
+     sizes the grid from wrap.clientWidth, so without this the intrinsic canvas
+     width wins on a shrink (desktop → narrow, or a phone rotating) and the
+     wrapper can never get smaller. */
+  canvas { width: auto; height: auto; display: block; max-width: 100%; }
+  .legend-dot { border-radius: 2px; width: 12px; height: 12px; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+  /* COLS is floored from the wrap's width / CELL, so a few px of remainder
+     can show past the grid's right edge — wall-colored instead of the
+     shared white so that remainder reads as "more wall", not a stray gap. */
+  .canvas-wrap { background: #1e293b; }
+</style>
+
+<script>
+  import { getRandom, isThumbnailMode } from '../lib/seed';
+
+  const rand = getRandom();
+  const canvas = document.getElementById('dfs-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const CELL = 20;
+  let COLS = 0, ROWS = 0;
+  let grid: number[][] = [];
+  let startCell: { r: number; c: number } | null = null;
+  let endCell: { r: number; c: number } | null = null;
+
+  let dfsStack: number[][] | null = null;
+  let dfsVisited: Set<string> | null = null;
+  let dfsParent: Record<string, number[]> = {};
+  let dfsDone = false;
+  let dfsStepOps = 0;
+  let animIds: ReturnType<typeof setTimeout>[] = [];
+  let autoStepId: ReturnType<typeof setTimeout> | null = null;
+
+  const C = {
+    empty: '#f8fafc', wall: '#1e293b', start: '#22c55e', end: '#ef4444',
+    visited: '#fecaca', frontier: '#f87171', path: '#f59e0b', gridLine: '#e2e8f0',
+  };
+
+  const statOps = document.getElementById('dfs-stat-ops')!;
+  const statVisited = document.getElementById('dfs-stat-visited')!;
+  const statPath = document.getElementById('dfs-stat-path')!;
+  const statStatus = document.getElementById('dfs-stat-status')!;
+  const stepInfo = document.getElementById('dfs-step-info')!;
+  const btnStep = document.getElementById('dfs-step') as HTMLButtonElement;
+  const toggleAnimate = document.getElementById('dfs-toggle-animate') as HTMLInputElement;
+  const toggleStep = document.getElementById('dfs-toggle-step') as HTMLInputElement;
+
+  function init() {
+    const wrap = canvas.parentElement!;
+    COLS = Math.floor(wrap.clientWidth / CELL);
+    ROWS = Math.floor(520 / CELL);
+    canvas.width = COLS * CELL;
+    canvas.height = ROWS * CELL;
+    grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    startCell = { r: Math.floor(ROWS / 2), c: 1 };
+    endCell = { r: Math.floor(ROWS / 2), c: COLS - 2 };
+    grid[startCell.r][startCell.c] = 2;
+    grid[endCell.r][endCell.c] = 3;
+    render();
+  }
+
+  function generateMaze() {
+    cancelAnims();
+    if (autoStepId) { clearTimeout(autoStepId); autoStepId = null; }
+    clearState();
+    grid = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+
+    function carve(r: number, c: number) {
+      const dirs = [[0, 2], [2, 0], [0, -2], [-2, 0]].sort(() => rand() - 0.5);
+      grid[r][c] = 0;
+      for (const [dr, dc] of dirs) {
+        const nr = r + dr, nc = c + dc;
+        if (nr > 0 && nr < ROWS - 1 && nc > 0 && nc < COLS - 1 && grid[nr][nc] === 1) {
+          grid[r + dr / 2][c + dc / 2] = 0;
+          carve(nr, nc);
+        }
+      }
+    }
+    const sr = 1 + 2 * Math.floor(rand() * Math.floor((ROWS - 1) / 2));
+    const sc = 1 + 2 * Math.floor(rand() * Math.floor((COLS - 1) / 2));
+    carve(sr, sc);
+
+    if (startCell) grid[startCell.r][startCell.c] = 0;
+    if (endCell) grid[endCell.r][endCell.c] = 0;
+
+    startCell = findOpenSide('left');
+    endCell = findOpenSide('right');
+    grid[startCell.r][startCell.c] = 2;
+    grid[endCell.r][endCell.c] = 3;
+    resetStats();
+    render();
+  }
+
+  function findOpenSide(side: 'left' | 'right') {
+    const colRange = side === 'left'
+      ? Array.from({ length: Math.floor(COLS / 2) }, (_, i) => i + 1)
+      : Array.from({ length: Math.floor(COLS / 2) }, (_, i) => COLS - 2 - i);
+    for (const c of colRange) for (let r = 1; r < ROWS - 1; r++) if (grid[r][c] === 0) return { r, c };
+    for (let r = 1; r < ROWS - 1; r++) for (let c = 1; c < COLS - 1; c++) if (grid[r][c] === 0) return { r, c };
+    return { r: 1, c: side === 'left' ? 1 : COLS - 2 };
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const v = grid[r][c];
+        ctx.fillStyle = v === 1 ? C.wall : v === 2 ? C.start : v === 3 ? C.end
+          : v === 4 ? C.visited : v === 5 ? C.path : v === 6 ? C.frontier : C.empty;
+        ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+        if (v !== 1) {
+          ctx.strokeStyle = C.gridLine; ctx.lineWidth = 0.5;
+          ctx.strokeRect(c * CELL + 0.5, r * CELL + 0.5, CELL - 1, CELL - 1);
+        }
+      }
+    }
+    if (startCell) drawLabel(startCell, 'S');
+    if (endCell) drawLabel(endCell, 'E');
+  }
+
+  function drawLabel(cell: { r: number; c: number }, lbl: string) {
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${Math.floor(CELL * 0.6)}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(lbl, cell.c * CELL + CELL / 2, cell.r * CELL + CELL / 2);
+  }
+
+  function renderCell(r: number, c: number) {
+    const v = grid[r][c];
+    ctx.fillStyle = v === 1 ? C.wall : v === 2 ? C.start : v === 3 ? C.end
+      : v === 4 ? C.visited : v === 5 ? C.path : v === 6 ? C.frontier : C.empty;
+    ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+    if (v !== 1) { ctx.strokeStyle = C.gridLine; ctx.lineWidth = 0.5; ctx.strokeRect(c * CELL + 0.5, r * CELL + 0.5, CELL - 1, CELL - 1); }
+    if (startCell && startCell.r === r && startCell.c === c) drawLabel(startCell, 'S');
+    if (endCell && endCell.r === r && endCell.c === c) drawLabel(endCell, 'E');
+  }
+
+  function cancelAnims() { animIds.forEach(clearTimeout); animIds = []; }
+
+  function clearState() {
+    dfsStack = null; dfsVisited = null; dfsParent = {};
+    dfsDone = false; dfsStepOps = 0;
+    btnStep.disabled = true;
+  }
+
+  function clearPath() {
+    cancelAnims();
+    if (autoStepId) { clearTimeout(autoStepId); autoStepId = null; }
+    clearState();
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if ([4, 5, 6].includes(grid[r][c])) grid[r][c] = 0;
+    render(); resetStats();
+    stepInfo.textContent = '';
+  }
+
+  function resetStats() {
+    statOps.textContent = '—'; statVisited.textContent = '—'; statPath.textContent = '—'; statStatus.textContent = 'Ready';
+  }
+
+  function neighbors(r: number, c: number) {
+    return [[0, 1], [1, 0], [0, -1], [-1, 0]]
+      .map(([dr, dc]) => [r + dr, c + dc])
+      .filter(([nr, nc]) => nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] !== 1);
+  }
+
+  function computeDFS() {
+    const { r: sr, c: sc } = startCell!;
+    const { r: er, c: ec } = endCell!;
+    const visited: number[][] = [], parent: Record<string, number[]> = {};
+    const stack: number[][] = [[sr, sc]], seen = new Set([`${sr},${sc}`]);
+    let ops = 0;
+    while (stack.length) {
+      const [r, c] = stack.pop()!; ops++;
+      if (!(r === sr && c === sc)) visited.push([r, c]);
+      if (r === er && c === ec) return { visited, path: buildPath(parent, er, ec), ops };
+      for (const [nr, nc] of neighbors(r, c)) {
+        const k = `${nr},${nc}`;
+        if (!seen.has(k)) { seen.add(k); parent[k] = [r, c]; stack.push([nr, nc]); }
+      }
+    }
+    return { visited, path: [] as number[][], ops };
+  }
+
+  function buildPath(parent: Record<string, number[]>, er: number, ec: number) {
+    const path: number[][] = []; let k = `${er},${ec}`;
+    while (parent[k]) { const [r, c] = parent[k]; path.unshift([r, c]); k = `${r},${c}`; }
+    path.push([er, ec]); return path;
+  }
+
+  function runDFS() {
+    clearPath();
+    if (autoStepId) { clearTimeout(autoStepId); autoStepId = null; }
+    const stepMode = toggleStep.checked;
+    const animate = toggleAnimate.checked;
+
+    if (stepMode) {
+      initStepDFS();
+      btnStep.disabled = false;
+      statStatus.textContent = 'Running';
+      stepInfo.textContent = 'Stack: [start] — press → or wait';
+      autoStep();
+      return;
+    }
+
+    const { visited, path, ops } = computeDFS();
+
+    if (!animate) {
+      visited.forEach(([r, c]) => { if (grid[r][c] === 0) grid[r][c] = 4; });
+      path.forEach(([r, c]) => { if (grid[r][c] !== 2 && grid[r][c] !== 3) grid[r][c] = 5; });
+      render();
+      updateStats(ops, visited.length, path.length > 0 ? path.length - 1 : 0, path.length > 0);
+      return;
+    }
+
+    const VDELAY = 8, PDELAY = 25;
+    visited.forEach(([r, c], i) => {
+      animIds.push(setTimeout(() => {
+        if (grid[r][c] === 0) { grid[r][c] = 4; renderCell(r, c); }
+        if (i === visited.length - 1) {
+          path.forEach(([pr, pc], j) => {
+            animIds.push(setTimeout(() => {
+              if (grid[pr][pc] !== 2 && grid[pr][pc] !== 3) { grid[pr][pc] = 5; renderCell(pr, pc); }
+              if (j === path.length - 1) updateStats(ops, visited.length, path.length - 1, true);
+            }, j * PDELAY));
+          });
+          if (!path.length) updateStats(ops, visited.length, 0, false);
+        }
+      }, i * VDELAY));
+    });
+    if (!visited.length) updateStats(ops, 0, 0, false);
+  }
+
+  function initStepDFS() {
+    const { r: sr, c: sc } = startCell!;
+    dfsStack = [[sr, sc]];
+    dfsVisited = new Set([`${sr},${sc}`]);
+    dfsParent = {};
+    dfsDone = false;
+    dfsStepOps = 0;
+    render();
+  }
+
+  function autoStep() {
+    if (autoStepId) { clearTimeout(autoStepId); autoStepId = null; }
+    if (dfsDone || !dfsStack) return;
+    autoStepId = setTimeout(() => {
+      autoStepId = null;
+      if (dfsDone || !dfsStack) return;
+      doStep();
+      if (!dfsDone) autoStep();
+    }, 165);
+  }
+
+  function doStep() {
+    if (!dfsStack || dfsDone) return;
+    const { r: er, c: ec } = endCell!;
+    const { r: sr, c: sc } = startCell!;
+
+    if (!dfsStack.length) {
+      dfsDone = true;
+      btnStep.disabled = true;
+      stepInfo.textContent = 'Stack empty — no path found.';
+      updateStats(dfsStepOps, [...dfsVisited!].length - 1, 0, false);
+      return;
+    }
+
+    const [r, c] = dfsStack.pop()!;
+    dfsStepOps++;
+
+    if (grid[r][c] !== 2 && grid[r][c] !== 3) grid[r][c] = 4;
+
+    stepInfo.textContent = `Processing (${r},${c}) — stack size: ${dfsStack.length}`;
+    statOps.textContent = String(dfsStepOps);
+    statVisited.textContent = String([...dfsVisited!].filter((k) => {
+      const [rr, cc] = k.split(',').map(Number); return !(rr === sr && cc === sc);
+    }).length);
+
+    if (r === er && c === ec) {
+      dfsDone = true;
+      const path = buildPath(dfsParent, er, ec);
+      path.forEach(([pr, pc]) => { if (grid[pr][pc] !== 2 && grid[pr][pc] !== 3) grid[pr][pc] = 5; });
+      updateStats(dfsStepOps, [...dfsVisited!].length - 1, path.length - 1, true);
+      stepInfo.textContent = `Reached goal! Path length: ${path.length - 1}`;
+      btnStep.disabled = true;
+      render(); return;
+    }
+
+    for (const [nr, nc] of neighbors(r, c)) {
+      const k = `${nr},${nc}`;
+      if (!dfsVisited!.has(k)) {
+        dfsVisited!.add(k);
+        dfsParent[k] = [r, c];
+        dfsStack.push([nr, nc]);
+        if (grid[nr][nc] === 0) grid[nr][nc] = 6;
+      }
+    }
+    render();
+  }
+
+  function updateStats(ops: number, visited: number, pathLen: number, found: boolean) {
+    statOps.textContent = String(ops);
+    statVisited.textContent = String(visited);
+    statPath.textContent = found ? String(pathLen) : 'No path';
+    statStatus.textContent = found ? 'Found ✓' : 'No path';
+  }
+
+  toggleStep.addEventListener('change', function () {
+    if (this.checked) toggleAnimate.checked = true;
+  });
+
+  document.getElementById('dfs-generate')!.addEventListener('click', generateMaze);
+  document.getElementById('dfs-run')!.addEventListener('click', runDFS);
+  btnStep.addEventListener('click', doStep);
+  document.getElementById('dfs-clear')!.addEventListener('click', clearPath);
+
+  window.addEventListener('resize', () => { init(); generateMaze(); });
+  init();
+  generateMaze();
+
+  if (isThumbnailMode()) {
+    toggleAnimate.checked = false;
+    runDFS();
+  }
+</script>

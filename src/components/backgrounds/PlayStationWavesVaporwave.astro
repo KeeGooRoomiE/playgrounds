@@ -1,0 +1,26 @@
+---
+//
+//  PlayStationWavesVaporwave.astro
+//
+//  Second preset of PlayStationWaves.astro — fewer, bigger, more saturated
+//  waves with a pink/purple-leaning gradient instead of the time-of-day hue
+//  cycle look of the default preset. Not wired into any page yet.
+//
+import PlayStationWaves from './PlayStationWaves.astro';
+---
+
+<PlayStationWaves
+  waves={4}
+  baseAmplitude={28}
+  amplitudeStep={20}
+  yStart={0.3}
+  yStep={0.16}
+  hueStep={40}
+  saturation={85}
+  lightness={68}
+  alpha={0.12}
+  bgSat={55}
+  bgLow={88}
+  bgHigh={72}
+  secondaryBlend={0.7}
+/>

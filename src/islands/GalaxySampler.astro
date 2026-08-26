@@ -1,0 +1,256 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div class="control-group">
+      <div class="range-value"><span class="range-label">Stars</span><span class="range-number" id="gx-stars-val">1800</span></div>
+      <input type="range" id="gx-stars" min="200" max="5000" value="1800" step="100" />
+    </div>
+    <div class="control-group">
+      <div class="range-value"><span class="range-label">Arms</span><span class="range-number" id="gx-arms-val">4</span></div>
+      <input type="range" id="gx-arms" min="1" max="8" value="4" step="1" />
+    </div>
+    <div class="control-group">
+      <div class="range-value"><span class="range-label">Spiral Tightness</span><span class="range-number" id="gx-tight-val">0.42</span></div>
+      <input type="range" id="gx-tight" min="0.05" max="1.2" value="0.42" step="0.01" />
+    </div>
+    <div class="control-group">
+      <div class="range-value"><span class="range-label">Bunching (density)</span><span class="range-number" id="gx-bunch-val">0.9</span></div>
+      <input type="range" id="gx-bunch" min="0.3" max="2.0" value="0.9" step="0.05" />
+    </div>
+    <div class="control-group">
+      <div class="range-value"><span class="range-label">Arm Spread</span><span class="range-number" id="gx-disp-val">0.18</span></div>
+      <input type="range" id="gx-disp" min="0.02" max="0.6" value="0.18" step="0.01" />
+    </div>
+    <div class="control-group">
+      <div class="range-value"><span class="range-label">Fan Rate</span><span class="range-number" id="gx-fan-val">0.52</span></div>
+      <input type="range" id="gx-fan" min="0.1" max="1.2" value="0.52" step="0.01" />
+    </div>
+    <div class="control-group">
+      <div class="range-value"><span class="range-label">Radius</span><span class="range-number" id="gx-rad-val">0.38</span></div>
+      <input type="range" id="gx-rad" min="0.1" max="0.7" value="0.38" step="0.01" />
+    </div>
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="control-group">
+        <div class="range-value"><span class="range-label">Rotation Speed</span><span class="range-number" id="gx-rot-val">1.0×</span></div>
+        <input type="range" id="gx-rot" min="0" max="5" value="1" step="0.1" />
+      </div>
+    </div>
+    <button type="button" id="gx-randomize">🎲 Randomize</button>
+  </div>
+
+  <div class="canvas-container gx-canvas-container">
+    <canvas id="gx-canvas"></canvas>
+  </div>
+</div>
+
+<style>
+  /* .canvas-container (global.css) covers border/radius/overflow; only the
+     dark space background overrides it — everything else here is the same. */
+  .gx-canvas-container {
+    position: relative;
+    background: #00000f;
+  }
+  #gx-canvas { display: block; width: 100%; height: 640px; }
+</style>
+
+<script>
+  interface Star { x: number; y: number; brightness: number; hue: number; sat: number; size: number; }
+  interface Nebula { x: number; y: number; r: number; hue: number; alpha: number; }
+
+  const canvas = document.getElementById('gx-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+
+  let galaxyRadius = 0;
+  let rotation = 0;
+  let lastTime = performance.now();
+  let rotSpeed = 0.000015;
+
+  const LAYERS = 3;
+  const starLayers: Star[][] = Array.from({ length: LAYERS }, () => []);
+  const nebulae: Nebula[] = [];
+
+  const starsInput = document.getElementById('gx-stars') as HTMLInputElement;
+  const armsInput = document.getElementById('gx-arms') as HTMLInputElement;
+  const tightInput = document.getElementById('gx-tight') as HTMLInputElement;
+  const bunchInput = document.getElementById('gx-bunch') as HTMLInputElement;
+  const dispInput = document.getElementById('gx-disp') as HTMLInputElement;
+  const fanInput = document.getElementById('gx-fan') as HTMLInputElement;
+  const radInput = document.getElementById('gx-rad') as HTMLInputElement;
+  const rotInput = document.getElementById('gx-rot') as HTMLInputElement;
+
+  function getConfig() {
+    return {
+      numStars: parseInt(starsInput.value),
+      numArms: parseInt(armsInput.value),
+      spiralTightness: parseFloat(tightInput.value),
+      bunching: parseFloat(bunchInput.value),
+      bunching2: 1.2,
+      displacementFactor: parseFloat(dispInput.value),
+      fanRate: parseFloat(fanInput.value),
+      radiusFraction: parseFloat(radInput.value),
+      nebulaCount: 5,
+    };
+  }
+
+  function seededRandom(seed: number) {
+    let s = seed;
+    return function () {
+      s = (s * 1664525 + 1013904223) & 0xffffffff;
+      return (s >>> 0) / 0xffffffff;
+    };
+  }
+
+  function generateGalaxy() {
+    const cfg = getConfig();
+    for (let l = 0; l < LAYERS; l++) starLayers[l].length = 0;
+    const rand = seededRandom(42);
+    const armSpacing = (Math.PI * 2) / cfg.numArms;
+    const randomInterval = Math.pow(galaxyRadius, 1 / cfg.bunching);
+    const randomInterval2 = Math.pow(galaxyRadius * cfg.displacementFactor, 1 / cfg.bunching2);
+
+    for (let i = 0; i < cfg.numStars; i++) {
+      const arm = Math.floor(rand() * cfg.numArms);
+      const dist = Math.pow(rand() * randomInterval, cfg.bunching);
+      const angle = dist * 2 * cfg.spiralTightness + arm * armSpacing;
+
+      const dx = rand() * 2 - 1;
+      const dy = rand() * 2 - 1;
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      const disp = (Math.pow(rand() * randomInterval2, cfg.bunching2) / len) * Math.pow(dist, cfg.fanRate);
+
+      const x = Math.cos(angle) * dist + dx * disp;
+      const y = Math.sin(angle) * dist + dy * disp;
+
+      const normDist = dist / galaxyRadius;
+      const brightness = 0.3 + 0.7 * Math.pow(Math.max(0, 1 - normDist), 1.5);
+      const hue = normDist < 0.15 ? 45 + rand() * 20 : 190 + rand() * 60;
+      const sat = normDist < 0.15 ? 60 : 40 + rand() * 30;
+      const size = 0.4 + rand() * (normDist < 0.12 ? 1.8 : 0.9);
+      const layer = Math.floor(rand() * LAYERS);
+      starLayers[layer].push({ x, y, brightness, hue, sat, size });
+    }
+  }
+
+  function generateNebulae() {
+    const cfg = getConfig();
+    nebulae.length = 0;
+    const rand = seededRandom(99);
+    const armSpacing = (Math.PI * 2) / cfg.numArms;
+    for (let n = 0; n < cfg.nebulaCount; n++) {
+      const arm = Math.floor(rand() * cfg.numArms);
+      const dist = galaxyRadius * (0.25 + rand() * 0.55);
+      const angle = dist * 2 * cfg.spiralTightness + arm * armSpacing;
+      nebulae.push({
+        x: Math.cos(angle) * dist,
+        y: Math.sin(angle) * dist,
+        r: galaxyRadius * (0.12 + rand() * 0.14),
+        hue: 180 + rand() * 120,
+        alpha: 0.03 + rand() * 0.04,
+      });
+    }
+  }
+
+  function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    galaxyRadius = Math.min(rect.width, rect.height) * parseFloat(radInput.value);
+    generateGalaxy();
+    generateNebulae();
+  }
+
+  function regen() {
+    document.getElementById('gx-stars-val')!.textContent = starsInput.value;
+    document.getElementById('gx-arms-val')!.textContent = armsInput.value;
+    document.getElementById('gx-tight-val')!.textContent = parseFloat(tightInput.value).toFixed(2);
+    document.getElementById('gx-bunch-val')!.textContent = parseFloat(bunchInput.value).toFixed(2);
+    document.getElementById('gx-disp-val')!.textContent = parseFloat(dispInput.value).toFixed(2);
+    document.getElementById('gx-fan-val')!.textContent = parseFloat(fanInput.value).toFixed(2);
+    document.getElementById('gx-rad-val')!.textContent = parseFloat(radInput.value).toFixed(2);
+    const rect = canvas.getBoundingClientRect();
+    galaxyRadius = Math.min(rect.width, rect.height) * parseFloat(radInput.value);
+    generateGalaxy();
+    generateNebulae();
+  }
+
+  function updateRot() {
+    const v = parseFloat(rotInput.value);
+    document.getElementById('gx-rot-val')!.textContent = `${v.toFixed(1)}×`;
+    rotSpeed = 0.000015 * v;
+  }
+
+  function randomize() {
+    starsInput.value = String(Math.floor(Math.random() * 4000 + 500));
+    armsInput.value = String(Math.floor(Math.random() * 7 + 1));
+    tightInput.value = (Math.random() * 1.0 + 0.1).toFixed(2);
+    bunchInput.value = (Math.random() * 1.5 + 0.4).toFixed(2);
+    dispInput.value = (Math.random() * 0.5 + 0.05).toFixed(2);
+    fanInput.value = (Math.random() * 1.0 + 0.1).toFixed(2);
+    radInput.value = (Math.random() * 0.4 + 0.2).toFixed(2);
+    regen();
+  }
+
+  function draw(now: number) {
+    const dt = now - lastTime;
+    lastTime = now;
+    rotation += rotSpeed * dt;
+
+    const rect = canvas.getBoundingClientRect();
+    const rW = rect.width, rH = rect.height;
+
+    ctx.clearRect(0, 0, rW, rH);
+
+    const bg = ctx.createRadialGradient(rW / 2, rH / 2, 0, rW / 2, rH / 2, Math.max(rW, rH) * 0.7);
+    bg.addColorStop(0, '#05050f');
+    bg.addColorStop(1, '#00000a');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, rW, rH);
+
+    ctx.save();
+    ctx.translate(rW / 2, rH / 2);
+    ctx.rotate(rotation);
+
+    for (const neb of nebulae) {
+      const g = ctx.createRadialGradient(neb.x, neb.y, 0, neb.x, neb.y, neb.r);
+      g.addColorStop(0, `hsla(${neb.hue},70%,60%,${neb.alpha * 2})`);
+      g.addColorStop(1, `hsla(${neb.hue},60%,40%,0)`);
+      ctx.beginPath();
+      ctx.arc(neb.x, neb.y, neb.r, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
+
+    const cg = ctx.createRadialGradient(0, 0, 0, 0, 0, galaxyRadius * 0.22);
+    cg.addColorStop(0, 'rgba(255,230,160,0.18)');
+    cg.addColorStop(0.4, 'rgba(200,160,80,0.06)');
+    cg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath();
+    ctx.arc(0, 0, galaxyRadius * 0.22, 0, Math.PI * 2);
+    ctx.fillStyle = cg;
+    ctx.fill();
+
+    for (let l = 0; l < LAYERS; l++) {
+      for (const s of starLayers[l]) {
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${s.hue},${s.sat}%,${70 + s.brightness * 30}%,${s.brightness})`;
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+    requestAnimationFrame(draw);
+  }
+
+  [starsInput, armsInput, tightInput, bunchInput, dispInput, fanInput, radInput].forEach((el) => {
+    el.addEventListener('input', regen);
+  });
+  rotInput.addEventListener('input', updateRot);
+  document.getElementById('gx-randomize')!.addEventListener('click', randomize);
+  window.addEventListener('resize', resizeCanvas);
+
+  resizeCanvas();
+  requestAnimationFrame(draw);
+</script>

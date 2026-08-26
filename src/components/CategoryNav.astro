@@ -1,0 +1,111 @@
+---
+import type { CollectionEntry } from 'astro:content';
+
+interface Props {
+  entries: CollectionEntry<'playgrounds'>[];
+}
+
+const { entries } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+// Grouped in the collection's own `order` progression rather than
+// alphabetically: a category appears where its first playground does, so the
+// rail reads in the same sequence as the cards next to it.
+const categories: { name: string; entries: CollectionEntry<'playgrounds'>[] }[] = [];
+for (const entry of entries) {
+  const name = entry.data.category;
+  let group = categories.find((c) => c.name === name);
+  if (!group) {
+    group = { name, entries: [] };
+    categories.push(group);
+  }
+  group.entries.push(entry);
+}
+
+// "BFS — Breadth-First Search" → "BFS". Full titles overflow a 260px rail,
+// and the part before the dash is the name people actually use.
+const shortTitle = (title: string) => title.split('—')[0].trim();
+---
+
+<nav class="cat-nav" aria-label="Playgrounds by category">
+  {categories.map((category) => (
+    <details class="cat">
+      <summary class="cat__summary">
+        <span class="cat__name">{category.name}</span>
+        <span class="cat__count">({category.entries.length})</span>
+      </summary>
+      <ul class="cat__list">
+        {category.entries.map((entry) => (
+          <li>
+            <a href={`${base}/${entry.id}/`}>{shortTitle(entry.data.title)}</a>
+          </li>
+        ))}
+      </ul>
+    </details>
+  ))}
+</nav>
+
+<style>
+  .cat-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  /* Deliberately quiet: this is a shortcut into the cards, not the page's
+     primary structure — muted and a step smaller than body text so it reads
+     as a margin note rather than a second nav bar. */
+  .cat__summary {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    list-style: none;
+    user-select: none;
+  }
+  /* The default disclosure triangle is replaced by the chevron below. */
+  .cat__summary::-webkit-details-marker { display: none; }
+  .cat__summary:hover { background: var(--code-bg); color: var(--text); }
+
+  .cat__name { text-transform: capitalize; }
+  .cat__count { color: var(--muted-2); font-weight: 400; font-size: 12px; }
+
+  .cat__summary::after {
+    content: '';
+    margin-left: auto;
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid var(--muted-2);
+    border-bottom: 1.5px solid var(--muted-2);
+    transform: translateY(-2px) rotate(45deg);
+    transition: transform var(--t);
+  }
+  .cat[open] > .cat__summary::after { transform: translateY(1px) rotate(225deg); }
+
+  /* Deliberately block, not flex: setting `display` on a <details>'s direct
+     child fights the UA's own mechanism for hiding closed content in some
+     browsers. A plain vertical list needs no flex anyway. */
+  .cat__list {
+    list-style: none;
+    margin: 0 0 6px;
+    padding: 0 0 0 8px;
+  }
+  .cat__list li { margin: 0; }
+  .cat__list a {
+    display: block;
+    padding: 5px 8px;
+    border-radius: var(--r-sm);
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .cat__list a:hover {
+    background: var(--code-bg);
+    color: var(--accent);
+    text-decoration: none;
+  }
+</style>

@@ -1,0 +1,67 @@
+---
+// Self-hosted via npm — no external request, so the site keeps working offline
+// and doesn't pay a Google Fonts round-trip on every page. The sans is a
+// variable font: one file covers weights 100–700. Subsets are split by
+// unicode-range, so an English page only ever fetches the latin ones.
+import '@fontsource-variable/ibm-plex-sans';
+import '@fontsource-variable/ibm-plex-sans/wght-italic.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import '../styles/global.css';
+import DefaultBackground from './backgrounds/DefaultBackground.astro';
+import Footer from './Footer.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+  ogImage?: string;
+  background?: any;
+}
+
+const {
+  title,
+  description = 'Interactive algorithm playgrounds — learn by tweaking, not just reading.',
+  ogImage,
+  background: Background = DefaultBackground,
+} = Astro.props;
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const siteUrl = (Astro.site?.toString() ?? 'http://localhost:4321/').replace(/\/$/, '');
+const canonicalUrl = `${siteUrl}${Astro.url.pathname}`;
+const metaImage = ogImage
+  ? `${siteUrl}${base}${ogImage.startsWith('/') ? ogImage : `/${ogImage}`}`
+  : `${siteUrl}${base}/og-image.png`;
+const pageTitle = title === 'Playgrounds' ? title : `${title} — Playgrounds`;
+---
+
+<!doctype html>
+<html lang="en" data-base={base}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={metaImage} />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={pageTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={metaImage} />
+
+    <link rel="icon" href={`${base}/favicon.svg`} type="image/svg+xml" />
+  </head>
+  <body>
+    <Background />
+
+    <main>
+      <slot />
+    </main>
+
+    <Footer />
+  </body>
+</html>

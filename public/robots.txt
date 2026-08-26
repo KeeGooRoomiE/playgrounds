@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://keegooroomie.github.io/playgrounds-lab/sitemap-index.xml

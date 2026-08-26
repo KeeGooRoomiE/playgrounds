@@ -1,0 +1,157 @@
+---
+//
+//  PlayStationWaves.astro
+//
+//  XMB-inspired sine-wave canvas background. Not wired into any page yet —
+//  opt a playground into it via its frontmatter `background` field once
+//  registered in ./index.ts. Canvas covers the full viewport (position: fixed).
+//  Respects prefers-reduced-motion.
+//
+
+export interface Props {
+  waves?: number; // total wave count                        default: 6
+  baseSpeed?: number; // animation speed of wave 0               default: 0.0025
+  speedStep?: number; // per-wave speed increment                default: 0.001
+  baseAmplitude?: number; // px amplitude of wave 0                  default: 18
+  amplitudeStep?: number; // px amplitude added per each wave        default: 14
+  yStart?: number; // Y of wave 0, fraction of canvas height  default: 0.22
+  yStep?: number; // Y spacing between waves, fraction of H  default: 0.13
+  phaseOffset?: number; // initial phase shift between waves, rad  default: 1.2
+  hueStep?: number; // hue degrees added per wave              default: 15
+  saturation?: number; // wave color saturation, %                default: 72
+  lightness?: number; // wave color lightness, %                 default: 62
+  alpha?: number; // wave fill opacity                        default: 0.08
+  bgSat?: number; // background gradient saturation, %        default: 38
+  bgLow?: number; // background gradient top lightness, %     default: 90
+  bgHigh?: number; // background gradient bottom lightness, %  default: 80
+  drawStep?: number; // horizontal px step, lower = smoother    default: 4
+  secondaryBlend?: number; // secondary sine mix factor (0..1)        default: 0.5
+}
+
+const {
+  waves = 6,
+  baseSpeed = 0.0025,
+  speedStep = 0.001,
+  baseAmplitude = 18,
+  amplitudeStep = 14,
+  yStart = 0.22,
+  yStep = 0.13,
+  phaseOffset = 1.2,
+  hueStep = 15,
+  saturation = 72,
+  lightness = 62,
+  alpha = 0.08,
+  bgSat = 38,
+  bgLow = 90,
+  bgHigh = 80,
+  drawStep = 4,
+  secondaryBlend = 0.5,
+} = Astro.props;
+---
+
+<canvas id="psw-canvas" aria-hidden="true"></canvas>
+
+<style>
+  #psw-canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    pointer-events: none;
+    display: block;
+  }
+</style>
+
+<script define:vars={{
+  waves, baseSpeed, speedStep,
+  baseAmplitude, amplitudeStep,
+  yStart, yStep, phaseOffset,
+  hueStep, saturation, lightness, alpha,
+  bgSat, bgLow, bgHigh,
+  drawStep, secondaryBlend,
+}}>
+(function () {
+  const canvas = document.getElementById('psw-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  const CFG = {
+    waves, baseSpeed, speedStep,
+    baseAmplitude, amplitudeStep,
+    yStart, yStep, phaseOffset,
+    hueStep, saturation, lightness, alpha,
+    bgSat, bgLow, bgHigh,
+    drawStep, secondaryBlend,
+  };
+
+  let tick = Date.now() % 50000;
+  let W = 0, H = 0;
+  let rafId = null;
+
+  function getHue() {
+    const d = new Date();
+    return Math.round(((d.getHours() * 60 + d.getMinutes()) / 1440) * 360);
+  }
+
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+
+  function draw() {
+    const hue = getHue();
+
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, `hsl(${hue},${CFG.bgSat}%,${CFG.bgLow}%)`);
+    grad.addColorStop(1, `hsl(${hue},${CFG.bgSat}%,${CFG.bgHigh}%)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    for (let i = 0; i < CFG.waves; i++) {
+      const speed = CFG.baseSpeed + i * CFG.speedStep;
+      const amp = CFG.baseAmplitude + i * CFG.amplitudeStep;
+      const yBase = H * (CFG.yStart + i * CFG.yStep);
+      const phase = tick * speed + i * CFG.phaseOffset;
+      const wHue = (hue + i * CFG.hueStep) % 360;
+
+      ctx.beginPath();
+      for (let x = 0; x <= W; x += CFG.drawStep) {
+        const y = yBase
+          + Math.sin(x * 0.008 + phase) * amp
+          + Math.sin(x * 0.004 + phase * 0.6) * amp * CFG.secondaryBlend;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.lineTo(W, H);
+      ctx.lineTo(0, H);
+      ctx.closePath();
+      ctx.fillStyle = `hsla(${wHue},${CFG.saturation}%,${CFG.lightness}%,${CFG.alpha})`;
+      ctx.fill();
+    }
+
+    tick++;
+    rafId = requestAnimationFrame(draw);
+  }
+
+  const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  function start() {
+    if (rafId) return;
+    rafId = requestAnimationFrame(draw);
+  }
+
+  function stop() {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    draw();
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+
+  motionQuery.addEventListener('change', () => { motionQuery.matches ? stop() : start(); });
+
+  window.addEventListener('resize', resize, { passive: true });
+  resize();
+
+  if (motionQuery.matches) stop(); else start();
+})();
+</script>

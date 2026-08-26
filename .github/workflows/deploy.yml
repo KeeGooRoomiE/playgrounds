@@ -1,0 +1,93 @@
+name: Deploy Playgrounds to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      # --omit=dev skips Playwright (~10 MB, the only devDependency). Deploy
+      # never captures thumbnails — that's the separate thumbnails.yml
+      # workflow, which does a full install because it genuinely needs it.
+      - name: Install dependencies
+        run: npm ci --omit=dev
+
+      - name: Build Astro site
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  notify_telegram:
+    needs: [build, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Notify Telegram
+        env:
+          BOT_TOKEN:     ${{ secrets.PIPLINE_BOT_SECRET }}
+          CHAT_ID:       ${{ secrets.CHAT_ID }}
+          BUILD_STATUS:  ${{ needs.build.result }}
+          DEPLOY_STATUS: ${{ needs.deploy.result }}
+          ACTOR:         ${{ github.actor }}
+          BRANCH:        ${{ github.ref_name }}
+          SHA:           ${{ github.sha }}
+          OWNER:         ${{ github.repository_owner }}
+          REPO_NAME:     ${{ github.event.repository.name }}
+        run: |
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "No telegram secrets, skipping notification"
+            exit 0
+          fi
+
+          SHORT_SHA="${SHA:0:7}"
+
+          if [ "$BUILD_STATUS" = "success" ] && [ "$DEPLOY_STATUS" = "success" ]; then
+            TEXT="@${ACTOR}%0A✅ Deployed successfully!%0ABranch: ${BRANCH}%0ACommit: ${SHORT_SHA}%0A🌐 https://${OWNER}.github.io/${REPO_NAME}/"
+          elif [ "$BUILD_STATUS" != "success" ]; then
+            TEXT="@${ACTOR}%0A❌ Build failed!%0ABranch: ${BRANCH}%0ACommit: ${SHORT_SHA}"
+          else
+            TEXT="@${ACTOR}%0A❌ Deploy failed!%0ABranch: ${BRANCH}%0ACommit: ${SHORT_SHA}"
+          fi
+
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+            -d chat_id="${CHAT_ID}" \
+            -d text="$TEXT"

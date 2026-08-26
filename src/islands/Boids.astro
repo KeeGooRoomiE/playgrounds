@@ -1,0 +1,329 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div class="control-group">
+      <div class="range-value"><span class="range-label">Count</span><span class="range-number" id="bd-count-val">28</span></div>
+      <input type="range" id="bd-count" min="5" max="60" value="28" step="1" />
+    </div>
+    <div class="control-group">
+      <div class="range-value"><span class="range-label">Speed</span><span class="range-number" id="bd-speed-val">0.6</span></div>
+      <input type="range" id="bd-speed" min="0.2" max="2.0" value="0.6" step="0.1" />
+    </div>
+    <div style="border-top:1px solid var(--border); padding-top:12px;">
+      <div class="range-value" style="margin-bottom:6px"><span class="range-label">Cursor repel radius</span><span class="range-number" id="bd-flee-val">110</span></div>
+      <input type="range" id="bd-flee" min="30" max="250" value="110" step="10" />
+    </div>
+    <button type="button" id="bd-reset">↻ Reset</button>
+  </div>
+
+  <div class="canvas-container bd-canvas-container">
+    <canvas id="bd-canvas"></canvas>
+    <div class="legend bd-legend">
+      <div class="legend-item"><span class="legend-dot" style="background:#7b8ccc;width:10px;height:10px;"></span> Bacteria — move cursor to repel</div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* .canvas-container (global.css) already covers background/border/radius/overflow — only the extra positioning context for the legend overlay is added here. */
+  .bd-canvas-container {
+    position: relative;
+  }
+  #bd-canvas { display: block; width: 100%; height: 640px; }
+  .bd-legend { position: absolute; bottom: 16px; left: 16px; }
+  .bd-legend .legend-item { color: rgba(255,255,255,0.85); text-shadow: 0 1px 3px rgba(0,0,0,0.4); font-weight: 500; }
+</style>
+
+<script>
+  import { getRandom } from '../lib/seed';
+
+  interface Vec { x: number; y: number; }
+
+  const rand = getRandom();
+  const canvas = document.getElementById('bd-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  let t = 0;
+
+  function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  const W = () => canvas.getBoundingClientRect().width;
+  const H = () => canvas.getBoundingClientRect().height;
+
+  const mouse = { x: -9999, y: -9999, active: false };
+  canvas.addEventListener('mousemove', (e) => {
+    const r = canvas.getBoundingClientRect();
+    mouse.x = e.clientX - r.left; mouse.y = e.clientY - r.top; mouse.active = true;
+  });
+  canvas.addEventListener('mouseleave', () => { mouse.active = false; mouse.x = -9999; mouse.y = -9999; });
+
+  const cfg = {
+    maxSpeed: 0.6, maxForce: 0.012,
+    sepR: 50, aliR: 90, cohR: 110,
+    sepW: 1.6, aliW: 1.0, cohW: 0.9, wandW: 0.35,
+    fleeRadius: 110, fleeW: 2.8,
+  };
+
+  function rr(a: number, b: number) { return a + rand() * (b - a); }
+  function mag(v: Vec) { return Math.hypot(v.x, v.y); }
+  function norm(v: Vec): Vec { const m = mag(v); return m > 0 ? { x: v.x / m, y: v.y / m } : { x: 0, y: 0 }; }
+  function limit(v: Vec, max: number) { const m = mag(v); if (m > max) { v.x = (v.x / m) * max; v.y = (v.y / m) * max; } return v; }
+  function sub(a: Vec, b: Vec): Vec { return { x: a.x - b.x, y: a.y - b.y }; }
+  function add(a: Vec, b: Vec): Vec { return { x: a.x + b.x, y: a.y + b.y }; }
+  function scaleV(v: Vec, s: number): Vec { return { x: v.x * s, y: v.y * s }; }
+  function dist(a: Vec, b: Vec) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+  class Boid {
+    pos: Vec; vel: Vec; angle: number; wanderAngle: number;
+    flagPhase: number; flagCount: number; flagLen: number;
+    bodyLen: number; bodyW: number;
+    hue: number; sat: number; lig: number; alpha: number; nucleoidHue: number;
+
+    constructor() {
+      this.pos = { x: rr(60, W() - 60), y: rr(60, H() - 60) };
+      const a = rand() * Math.PI * 2;
+      this.vel = { x: Math.cos(a) * 0.4, y: Math.sin(a) * 0.4 };
+      this.angle = a;
+      this.wanderAngle = rand() * Math.PI * 2;
+      this.flagPhase = rand() * Math.PI * 2;
+      this.flagCount = Math.floor(rr(2, 5));
+      this.flagLen = rr(0.7, 1.3);
+
+      this.bodyLen = rr(14, 22);
+      this.bodyW = this.bodyLen * rr(0.28, 0.38);
+      this.hue = rr(220, 260);
+      this.sat = rr(35, 55);
+      this.lig = rr(45, 60);
+      this.alpha = rr(0.55, 0.75);
+      this.nucleoidHue = this.hue + rr(-20, 20);
+    }
+
+    steer(desired: Vec): Vec {
+      if (mag(desired) === 0) return { x: 0, y: 0 };
+      const d = scaleV(norm(desired), cfg.maxSpeed);
+      return limit(sub(d, this.vel), cfg.maxForce);
+    }
+
+    separation(peers: Boid[]): Vec {
+      let s: Vec = { x: 0, y: 0 }, n = 0;
+      for (const b of peers) {
+        if (b === this) continue;
+        const d = dist(this.pos, b.pos);
+        if (d < cfg.sepR && d > 0) { s = add(s, scaleV(norm(sub(this.pos, b.pos)), 1 / d)); n++; }
+      }
+      if (n > 0) { s.x /= n; s.y /= n; }
+      return this.steer(s);
+    }
+
+    alignment(peers: Boid[]): Vec {
+      let avg: Vec = { x: 0, y: 0 }, n = 0;
+      for (const b of peers) {
+        if (b === this) continue;
+        if (dist(this.pos, b.pos) < cfg.aliR) { avg = add(avg, b.vel); n++; }
+      }
+      if (n === 0) return { x: 0, y: 0 };
+      avg.x /= n; avg.y /= n;
+      return this.steer(avg);
+    }
+
+    cohesion(peers: Boid[]): Vec {
+      let center: Vec = { x: 0, y: 0 }, n = 0;
+      for (const b of peers) {
+        if (b === this) continue;
+        if (dist(this.pos, b.pos) < cfg.cohR) { center = add(center, b.pos); n++; }
+      }
+      if (n === 0) return { x: 0, y: 0 };
+      center.x = center.x / n - this.pos.x;
+      center.y = center.y / n - this.pos.y;
+      return this.steer(center);
+    }
+
+    fleeFromMouse(): Vec {
+      const d = dist(this.pos, mouse);
+      if (d >= cfg.fleeRadius || d === 0) return { x: 0, y: 0 };
+      const s = scaleV(norm(sub(this.pos, mouse)), 1 - d / cfg.fleeRadius);
+      return limit(s, cfg.maxForce * 3);
+    }
+
+    wander(): Vec {
+      this.wanderAngle += rr(-0.3, 0.3);
+      return limit({ x: Math.cos(this.wanderAngle), y: Math.sin(this.wanderAngle) }, cfg.maxForce);
+    }
+
+    update(peers: Boid[]) {
+      let acc: Vec = { x: 0, y: 0 };
+      acc = add(acc, scaleV(this.separation(peers), cfg.sepW));
+      acc = add(acc, scaleV(this.alignment(peers), cfg.aliW));
+      acc = add(acc, scaleV(this.cohesion(peers), cfg.cohW));
+      acc = add(acc, scaleV(this.wander(), cfg.wandW));
+      if (mouse.active) acc = add(acc, scaleV(this.fleeFromMouse(), cfg.fleeW));
+
+      this.vel = add(this.vel, acc);
+      const fleeing = mouse.active && dist(this.pos, mouse) < cfg.fleeRadius;
+      limit(this.vel, fleeing ? cfg.maxSpeed * 2.2 : cfg.maxSpeed);
+
+      const margin = 70, tf = 0.022, w = W(), h = H();
+      if (this.pos.x < margin) this.vel.x += tf * (1 - this.pos.x / margin);
+      if (this.pos.x > w - margin) this.vel.x -= tf * (1 - (w - this.pos.x) / margin);
+      if (this.pos.y < margin) this.vel.y += tf * (1 - this.pos.y / margin);
+      if (this.pos.y > h - margin) this.vel.y -= tf * (1 - (h - this.pos.y) / margin);
+      limit(this.vel, fleeing ? cfg.maxSpeed * 2.2 : cfg.maxSpeed);
+
+      this.pos = add(this.pos, this.vel);
+
+      const sp = mag(this.vel);
+      if (sp > 0.05) {
+        const target = Math.atan2(this.vel.y, this.vel.x);
+        let diff = target - this.angle;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        this.angle += diff * 0.08;
+      }
+    }
+
+    drawFlagellum(length: number, amplitude: number, phase: number, color: string, alpha: number) {
+      const segs = 18;
+      const segLen = length / segs;
+      ctx.beginPath();
+      let px = 0, py = 0;
+      ctx.moveTo(px, py);
+      for (let i = 1; i <= segs; i++) {
+        const frac = i / segs;
+        const amp = amplitude * frac * 1.2;
+        const wave = Math.sin(frac * Math.PI * 2.5 + phase) * amp;
+        px -= segLen;
+        py = wave;
+        ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = color + alpha + ')';
+      ctx.lineWidth = 0.6;
+      ctx.stroke();
+    }
+
+    draw() {
+      ctx.save();
+      ctx.translate(this.pos.x, this.pos.y);
+      ctx.rotate(this.angle);
+
+      const speed = mag(this.vel);
+      const fPhase = t * (0.06 + speed * 0.15) + this.flagPhase;
+
+      const L = this.bodyLen, BW = this.bodyW;
+      const color = `hsla(${this.hue},${this.sat}%,${this.lig}%,`;
+      const nc = `hsla(${this.nucleoidHue},${this.sat + 10}%,${this.lig - 15}%,`;
+
+      for (let i = 0; i < this.flagCount; i++) {
+        const spread = (i / (this.flagCount - 1 || 1) - 0.5) * BW * 1.2;
+        ctx.save();
+        ctx.translate(-L * 0.45, spread);
+        const flagLen = L * this.flagLen * 1.8;
+        this.drawFlagellum(flagLen, BW * 0.6, fPhase + i * 0.8, color, this.alpha * 0.45);
+        ctx.restore();
+      }
+
+      const r = BW / 2;
+      const half = L / 2 - r;
+      ctx.beginPath();
+      ctx.moveTo(-half, -r);
+      ctx.lineTo(half, -r);
+      ctx.arc(half, 0, r, -Math.PI / 2, Math.PI / 2);
+      ctx.lineTo(-half, r);
+      ctx.arc(-half, 0, r, Math.PI / 2, -Math.PI / 2);
+      ctx.closePath();
+
+      const grad = ctx.createRadialGradient(L * 0.05, -BW * 0.1, 0, 0, 0, L * 0.6);
+      grad.addColorStop(0, color + this.alpha * 0.55 + ')');
+      grad.addColorStop(0.55, color + this.alpha * 0.72 + ')');
+      grad.addColorStop(1, color + this.alpha * 0.88 + ')');
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      ctx.strokeStyle = color + this.alpha * 0.9 + ')';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      ctx.save();
+      ctx.beginPath();
+      const nw = L * 0.32, nh = BW * 0.38;
+      ctx.ellipse(L * 0.04, 0, nw, nh, 0.3, 0, Math.PI * 2);
+      ctx.fillStyle = nc + this.alpha * 0.55 + ')';
+      ctx.fill();
+      ctx.restore();
+
+      ctx.beginPath();
+      ctx.ellipse(-half * 0.1, -BW * 0.22, L * 0.22, BW * 0.12, -0.2, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${this.alpha * 0.18})`;
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  let boids: Boid[] = [];
+
+  const countInput = document.getElementById('bd-count') as HTMLInputElement;
+  const countVal = document.getElementById('bd-count-val')!;
+  const speedInput = document.getElementById('bd-speed') as HTMLInputElement;
+  const speedVal = document.getElementById('bd-speed-val')!;
+  const fleeInput = document.getElementById('bd-flee') as HTMLInputElement;
+  const fleeVal = document.getElementById('bd-flee-val')!;
+
+  function resetSim() {
+    const n = parseInt(countInput.value);
+    boids = Array.from({ length: n }, () => new Boid());
+  }
+
+  countInput.addEventListener('input', () => { countVal.textContent = countInput.value; resetSim(); });
+  speedInput.addEventListener('input', () => {
+    const v = parseFloat(speedInput.value);
+    speedVal.textContent = String(v);
+    cfg.maxSpeed = v;
+  });
+  fleeInput.addEventListener('input', () => {
+    const v = parseFloat(fleeInput.value);
+    fleeVal.textContent = String(v);
+    cfg.fleeRadius = v;
+  });
+  document.getElementById('bd-reset')!.addEventListener('click', resetSim);
+
+  function drawBackground() {
+    const w = W(), h = H();
+    ctx.fillStyle = '#e8e4d8';
+    ctx.fillRect(0, 0, w, h);
+
+    const vign = ctx.createRadialGradient(w / 2, h / 2, h * 0.2, w / 2, h / 2, h * 0.85);
+    vign.addColorStop(0, 'rgba(0,0,0,0)');
+    vign.addColorStop(1, 'rgba(0,0,0,0.18)');
+    ctx.fillStyle = vign;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.globalAlpha = 0.025;
+    for (let i = 0; i < 6; i++) {
+      const bx = (i * 173) % w, by = (i * 251 + 80) % h;
+      const br = ctx.createRadialGradient(bx, by, 0, bx, by, 120 + i * 30);
+      br.addColorStop(0, '#8888cc');
+      br.addColorStop(1, 'transparent');
+      ctx.fillStyle = br;
+      ctx.fillRect(0, 0, w, h);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function loop() {
+    t++;
+    drawBackground();
+    for (const b of boids) b.update(boids);
+    for (const b of boids) b.draw();
+    requestAnimationFrame(loop);
+  }
+
+  resetSim();
+  loop();
+</script>

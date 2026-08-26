@@ -1,0 +1,78 @@
+name: Regenerate Thumbnails
+
+# Manual only, and uploads an artifact rather than committing directly —
+# thumbnails are curated on purpose, not auto-published. Capture itself IS
+# deterministic (islands with randomness read `?seed=`, this job always
+# passes `kgrm_s121` — see src/lib/seed.ts), so re-running it doesn't need
+# repeated manual attempts to get a specific-looking result; the artifact
+# step is about deliberate review before a thumbnail goes live, not about
+# taming randomness.
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: "Playground slug to capture, or 'all'"
+        required: false
+        default: "all"
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get installed Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright'].version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright OS dependencies only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Build site
+        run: npm run build
+
+      - name: Start preview server
+        run: npx astro preview --port 4321 &
+
+      - name: Wait for preview server
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:4321/ > /dev/null && exit 0
+            sleep 1
+          done
+          echo "Preview server never came up" >&2
+          exit 1
+
+      - name: Capture thumbnail(s)
+        env:
+          PLAYGROUNDS_BASE_URL: http://localhost:4321
+        run: npm run thumbnail -- ${{ github.event.inputs.slug || 'all' }}
+
+      - name: Upload thumbnails artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: thumbnails-${{ github.run_number }}
+          path: public/thumbnails/*.png
+          retention-days: 14

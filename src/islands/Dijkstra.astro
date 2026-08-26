@@ -1,0 +1,479 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Terrain brush</div>
+      <div class="dk-terrain-btns">
+        <button type="button" class="dk-terrain-btn active" data-terrain="road" style="background:#fef9c3;border-color:#ca8a04">🟡 Road ×1</button>
+        <button type="button" class="dk-terrain-btn" data-terrain="plains" style="background:#dcfce7;">🟢 Plains ×2</button>
+        <button type="button" class="dk-terrain-btn" data-terrain="forest" style="background:#bbf7d0;">🌲 Forest ×4</button>
+        <button type="button" class="dk-terrain-btn" data-terrain="water" style="background:#bfdbfe;">🌊 Water ×8</button>
+        <button type="button" class="dk-terrain-btn" data-terrain="wall" style="background:#1e293b;color:#fff;">⬛ Wall</button>
+        <button type="button" class="dk-terrain-btn" data-terrain="start" style="background:#22c55e;color:#fff;">S Start</button>
+        <button type="button" class="dk-terrain-btn" data-terrain="end" style="background:#ef4444;color:#fff;">E End</button>
+        <button type="button" class="dk-terrain-btn" data-terrain="erase" style="background:#f1f5f9;">⌫ Erase</button>
+      </div>
+    </div>
+
+    <div>
+      <button type="button" class="btn" id="dk-generate">🎲 Generate map</button>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Mode</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="toggle-row">
+          <span class="toggle-label">Animate traversal</span>
+          <label class="toggle"><input type="checkbox" id="dk-toggle-animate" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Step-by-step (165ms)</span>
+          <label class="toggle"><input type="checkbox" id="dk-toggle-step" /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Show dist[] values</span>
+          <label class="toggle"><input type="checkbox" id="dk-toggle-dist" checked /><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="dk-run">▶ Run Dijkstra</button>
+      <button type="button" class="btn" id="dk-step" disabled>→ Next step</button>
+      <button type="button" class="btn" id="dk-clear">Clear path</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>PQ operations</span><span class="stat-val" id="dk-stat-ops">—</span></div>
+      <div class="stat-row"><span>Cells visited</span><span class="stat-val" id="dk-stat-visited">—</span></div>
+      <div class="stat-row"><span>Path cost</span><span class="stat-val" id="dk-stat-cost">—</span></div>
+      <div class="stat-row"><span>Path length</span><span class="stat-val" id="dk-stat-path">—</span></div>
+      <div class="stat-row"><span>Status</span><span class="stat-val" id="dk-stat-status">Ready</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Terrain costs</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#fef08a"></span> Road — cost 1</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#86efac"></span> Plains — cost 2</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#4ade80"></span> Forest — cost 4</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#93c5fd"></span> Water — cost 8</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#1e293b"></span> Wall — impassable</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Cheapest path</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap">
+      <canvas id="dk-canvas"></canvas>
+    </div>
+    <div class="step-info" id="dk-step-info"></div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  /* max-width keeps the canvas from propping its own wrapper open: the island
+     sizes the grid from wrap.clientWidth, so without this the intrinsic canvas
+     width wins on a shrink (desktop → narrow, or a phone rotating) and the
+     wrapper can never get smaller. */
+  canvas { width: auto; height: auto; display: block; cursor: crosshair; max-width: 100%; }
+  .legend-dot { border-radius: 2px; width: 14px; height: 14px; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+  .dk-terrain-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  .dk-terrain-btn {
+    padding: 7px 6px; background: transparent; color: #1a1a1a;
+    border: 2px solid var(--border-2); border-radius: 4px; cursor: pointer;
+    font-size: 11px; font-weight: 600; text-align: center; margin-bottom: 0;
+  }
+  .dk-terrain-btn.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+</style>
+
+<script>
+  import { getRandom, isThumbnailMode } from '../lib/seed';
+
+  const rand = getRandom();
+  const canvas = document.getElementById('dk-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const CELL = 24;
+  let COLS = 0, ROWS = 0;
+  let grid: string[][] = [];
+  let costGrid: number[][] = [];
+  let distGrid: number[][] = [];
+  let startCell: { r: number; c: number } | null = null;
+  let endCell: { r: number; c: number } | null = null;
+
+  let pqState: number[][] | null = null;
+  let pqVisited: Set<string> | null = null;
+  let pqParent: Record<string, number[]> = {};
+  let pqDone = false;
+  let pqOps = 0;
+  let animIds: ReturnType<typeof setTimeout>[] = [];
+  let autoStepId: ReturnType<typeof setTimeout> | null = null;
+  let drawMode = 'road';
+  let isMouseDown = false;
+
+  const TERRAIN: Record<string, { cost: number; color: string }> = {
+    empty: { cost: 1, color: '#f8fafc' },
+    road: { cost: 1, color: '#fef08a' },
+    plains: { cost: 2, color: '#86efac' },
+    forest: { cost: 4, color: '#4ade80' },
+    water: { cost: 8, color: '#93c5fd' },
+    wall: { cost: Infinity, color: '#1e293b' },
+  };
+
+  const VISITED_OVERLAY = 'rgba(251,191,36,0.18)';
+  const FRONTIER_OVERLAY = 'rgba(251,191,36,0.4)';
+  const PATH_COLOR = '#f59e0b';
+  const GRID_LINE = '#e2e8f0';
+
+  const statOps = document.getElementById('dk-stat-ops')!;
+  const statVisited = document.getElementById('dk-stat-visited')!;
+  const statCost = document.getElementById('dk-stat-cost')!;
+  const statPath = document.getElementById('dk-stat-path')!;
+  const statStatus = document.getElementById('dk-stat-status')!;
+  const stepInfo = document.getElementById('dk-step-info')!;
+  const btnStep = document.getElementById('dk-step') as HTMLButtonElement;
+  const toggleAnimate = document.getElementById('dk-toggle-animate') as HTMLInputElement;
+  const toggleStep = document.getElementById('dk-toggle-step') as HTMLInputElement;
+  const toggleDist = document.getElementById('dk-toggle-dist') as HTMLInputElement;
+
+  function init() {
+    const wrap = canvas.parentElement!;
+    COLS = Math.floor(wrap.clientWidth / CELL);
+    ROWS = Math.floor(520 / CELL);
+    canvas.width = COLS * CELL;
+    canvas.height = ROWS * CELL;
+    grid = Array.from({ length: ROWS }, () => Array(COLS).fill('empty'));
+    costGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    distGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(Infinity));
+    startCell = { r: Math.floor(ROWS / 2), c: 1 };
+    endCell = { r: Math.floor(ROWS / 2), c: COLS - 2 };
+    grid[startCell.r][startCell.c] = 'start';
+    grid[endCell.r][endCell.c] = 'end';
+    render();
+  }
+
+  function generateMap() {
+    cancelAnims();
+    if (autoStepId) { clearTimeout(autoStepId); autoStepId = null; }
+    clearStateVars();
+
+    const terrainTypes = ['road', 'road', 'road', 'plains', 'plains', 'forest', 'forest', 'water'];
+    grid = Array.from({ length: ROWS }, () =>
+      Array.from({ length: COLS }, () => terrainTypes[Math.floor(rand() * terrainTypes.length)]));
+    costGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    distGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(Infinity));
+
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (rand() < 0.12) grid[r][c] = 'wall';
+
+    if (startCell) grid[startCell.r][startCell.c] = 'empty';
+    if (endCell) grid[endCell.r][endCell.c] = 'empty';
+
+    startCell = findOpenSide('left');
+    endCell = findOpenSide('right');
+    grid[startCell.r][startCell.c] = 'start';
+    grid[endCell.r][endCell.c] = 'end';
+    resetStats();
+    render();
+  }
+
+  function findOpenSide(side: 'left' | 'right') {
+    const colRange = side === 'left'
+      ? Array.from({ length: Math.floor(COLS / 2) }, (_, i) => i + 1)
+      : Array.from({ length: Math.floor(COLS / 2) }, (_, i) => COLS - 2 - i);
+    for (const c of colRange) for (let r = 1; r < ROWS - 1; r++) if (grid[r][c] !== 'wall') return { r, c };
+    for (let r = 1; r < ROWS - 1; r++) for (let c = 1; c < COLS - 1; c++) if (grid[r][c] !== 'wall') return { r, c };
+    return { r: 1, c: side === 'left' ? 1 : COLS - 2 };
+  }
+
+  function cellCost(r: number, c: number) {
+    const t = grid[r][c];
+    if (t === 'start' || t === 'end' || t === 'empty') return 1;
+    return TERRAIN[t] ? TERRAIN[t].cost : 1;
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const showDist = toggleDist.checked;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const t = grid[r][c];
+        const ov = costGrid[r][c];
+
+        const color = t === 'wall' ? TERRAIN.wall.color : TERRAIN[t] ? TERRAIN[t].color : TERRAIN.empty.color;
+        ctx.fillStyle = color;
+        ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+
+        if (ov === 5) { ctx.fillStyle = PATH_COLOR; ctx.fillRect(c * CELL, r * CELL, CELL, CELL); }
+        else if (ov === 6) { ctx.fillStyle = FRONTIER_OVERLAY; ctx.fillRect(c * CELL, r * CELL, CELL, CELL); }
+        else if (ov === 4) { ctx.fillStyle = VISITED_OVERLAY; ctx.fillRect(c * CELL, r * CELL, CELL, CELL); }
+
+        if (t !== 'wall') {
+          ctx.strokeStyle = GRID_LINE; ctx.lineWidth = 0.5;
+          ctx.strokeRect(c * CELL + 0.5, r * CELL + 0.5, CELL - 1, CELL - 1);
+        }
+
+        if (showDist && (ov === 4 || ov === 6) && distGrid[r][c] < Infinity && t !== 'start' && t !== 'end') {
+          const d = distGrid[r][c];
+          const txt = d < 100 ? d.toString() : '∞';
+          ctx.font = `bold ${Math.floor(CELL * 0.38)}px sans-serif`;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillStyle = 'rgba(0,0,0,0.55)';
+          ctx.fillText(txt, c * CELL + CELL / 2, r * CELL + CELL / 2);
+        }
+      }
+    }
+    if (startCell) drawLabel(startCell, 'S', '#22c55e');
+    if (endCell) drawLabel(endCell, 'E', '#ef4444');
+  }
+
+  function drawLabel(cell: { r: number; c: number }, lbl: string, bg: string) {
+    ctx.fillStyle = bg;
+    ctx.fillRect(cell.c * CELL, cell.r * CELL, CELL, CELL);
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${Math.floor(CELL * 0.55)}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(lbl, cell.c * CELL + CELL / 2, cell.r * CELL + CELL / 2);
+  }
+
+  document.querySelectorAll<HTMLButtonElement>('.dk-terrain-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      drawMode = btn.dataset.terrain!;
+      document.querySelectorAll('.dk-terrain-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  function applyPaint(r: number, c: number) {
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
+    const isSt = startCell && startCell.r === r && startCell.c === c;
+    const isEn = endCell && endCell.r === r && endCell.c === c;
+    if (drawMode === 'start') {
+      if (startCell) grid[startCell.r][startCell.c] = 'empty';
+      startCell = { r, c }; grid[r][c] = 'start';
+    } else if (drawMode === 'end') {
+      if (endCell) grid[endCell.r][endCell.c] = 'empty';
+      endCell = { r, c }; grid[r][c] = 'end';
+    } else if (drawMode === 'erase') {
+      if (!isSt && !isEn) grid[r][c] = 'empty';
+    } else if (!isSt && !isEn) {
+      grid[r][c] = drawMode;
+    }
+    render();
+  }
+
+  function cellFromEvent(e: MouseEvent) {
+    const rect = canvas.getBoundingClientRect();
+    return { r: Math.floor((e.clientY - rect.top) / CELL), c: Math.floor((e.clientX - rect.left) / CELL) };
+  }
+
+  canvas.addEventListener('mousedown', (e) => { isMouseDown = true; const { r, c } = cellFromEvent(e); applyPaint(r, c); });
+  canvas.addEventListener('mousemove', (e) => { if (isMouseDown) { const { r, c } = cellFromEvent(e); applyPaint(r, c); } });
+  window.addEventListener('mouseup', () => { isMouseDown = false; });
+
+  function cancelAnims() { animIds.forEach(clearTimeout); animIds = []; }
+
+  function clearStateVars() {
+    pqState = null; pqVisited = null; pqParent = {}; pqDone = false; pqOps = 0;
+    btnStep.disabled = true;
+  }
+
+  function clearPath() {
+    cancelAnims();
+    if (autoStepId) { clearTimeout(autoStepId); autoStepId = null; }
+    clearStateVars();
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) costGrid[r][c] = 0;
+    distGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(Infinity));
+    render(); resetStats();
+    stepInfo.textContent = '';
+  }
+
+  function resetStats() {
+    statOps.textContent = '—'; statVisited.textContent = '—'; statCost.textContent = '—'; statPath.textContent = '—';
+    statStatus.textContent = 'Ready';
+  }
+
+  function updateStats(ops: number, visited: number, cost: number, pathLen: number, found: boolean) {
+    statOps.textContent = String(ops);
+    statVisited.textContent = String(visited);
+    statCost.textContent = found ? String(cost) : 'No path';
+    statPath.textContent = found ? String(pathLen) : 'No path';
+    statStatus.textContent = found ? 'Found ✓' : 'No path';
+  }
+
+  function neighbors(r: number, c: number) {
+    return [[0, 1], [1, 0], [0, -1], [-1, 0]]
+      .map(([dr, dc]) => [r + dr, c + dc])
+      .filter(([nr, nc]) => nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] !== 'wall');
+  }
+
+  function buildPath(parent: Record<string, number[]>, er: number, ec: number) {
+    const path: number[][] = []; let k = `${er},${ec}`;
+    while (parent[k]) { const [r, c] = parent[k]; path.unshift([r, c]); k = `${r},${c}`; }
+    path.push([er, ec]); return path;
+  }
+
+  function computeDijkstra() {
+    const { r: sr, c: sc } = startCell!, { r: er, c: ec } = endCell!;
+    const dist: Record<string, number> = {}, parent: Record<string, number[]> = {}, visited: number[][] = [];
+    const key = (r: number, c: number) => `${r},${c}`;
+    dist[key(sr, sc)] = 0;
+    const pq: number[][] = [[0, sr, sc]];
+    const done = new Set<string>(); let ops = 0;
+    while (pq.length) {
+      pq.sort((a, b) => a[0] - b[0]);
+      const [g, r, c] = pq.shift()!; ops++;
+      const k = key(r, c);
+      if (done.has(k)) continue;
+      done.add(k);
+      if (!(r === sr && c === sc)) visited.push([r, c, g]);
+      if (r === er && c === ec) return { visited, path: buildPath(parent, er, ec), cost: g, ops };
+      for (const [nr, nc] of neighbors(r, c)) {
+        const nk = key(nr, nc);
+        const ng = g + cellCost(nr, nc);
+        if (dist[nk] === undefined || ng < dist[nk]) { dist[nk] = ng; parent[nk] = [r, c]; pq.push([ng, nr, nc]); }
+      }
+    }
+    return { visited, path: [] as number[][], cost: Infinity, ops };
+  }
+
+  function runDijkstra() {
+    clearPath();
+    if (autoStepId) { clearTimeout(autoStepId); autoStepId = null; }
+    const step = toggleStep.checked;
+    const animate = toggleAnimate.checked;
+
+    if (step) {
+      initStepDijkstra();
+      btnStep.disabled = false;
+      statStatus.textContent = 'Running';
+      stepInfo.textContent = 'Priority queue: [start, cost=0]';
+      autoStep();
+      return;
+    }
+
+    const { visited, path, cost, ops } = computeDijkstra();
+    visited.forEach(([r, c, g]) => { distGrid[r][c] = g; });
+
+    if (!animate) {
+      visited.forEach(([r, c]) => { if (costGrid[r][c] === 0) costGrid[r][c] = 4; });
+      path.forEach(([r, c]) => { if (grid[r][c] !== 'start' && grid[r][c] !== 'end') costGrid[r][c] = 5; });
+      render();
+      updateStats(ops, visited.length, cost, path.length > 0 ? path.length - 1 : 0, path.length > 0);
+      return;
+    }
+
+    const VDELAY = 10, PDELAY = 30;
+    visited.forEach(([r, c, g], i) => {
+      animIds.push(setTimeout(() => {
+        if (costGrid[r][c] === 0) { costGrid[r][c] = 4; distGrid[r][c] = g; render(); }
+        if (i === visited.length - 1) {
+          path.forEach(([pr, pc], j) => {
+            animIds.push(setTimeout(() => {
+              if (grid[pr][pc] !== 'start' && grid[pr][pc] !== 'end') costGrid[pr][pc] = 5;
+              render();
+              if (j === path.length - 1) updateStats(ops, visited.length, cost, path.length - 1, true);
+            }, j * PDELAY));
+          });
+          if (!path.length) updateStats(ops, visited.length, 0, 0, false);
+        }
+      }, i * VDELAY));
+    });
+    if (!visited.length) updateStats(ops, 0, 0, 0, false);
+  }
+
+  function initStepDijkstra() {
+    const { r: sr, c: sc } = startCell!;
+    distGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(Infinity));
+    distGrid[sr][sc] = 0;
+    pqState = [[0, sr, sc]];
+    pqVisited = new Set([`${sr},${sc}`]);
+    pqParent = {};
+    pqDone = false; pqOps = 0;
+    costGrid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+    costGrid[sr][sc] = 6;
+    render();
+  }
+
+  function autoStep() {
+    if (autoStepId) { clearTimeout(autoStepId); autoStepId = null; }
+    if (pqDone || !pqState) return;
+    autoStepId = setTimeout(() => {
+      autoStepId = null;
+      if (pqDone || !pqState) return;
+      doStep();
+      if (!pqDone) autoStep();
+    }, 165);
+  }
+
+  function doStep() {
+    if (!pqState || pqDone) return;
+    const { r: er, c: ec } = endCell!, { r: sr, c: sc } = startCell!;
+    if (!pqState.length) {
+      pqDone = true;
+      btnStep.disabled = true;
+      stepInfo.textContent = 'Priority queue empty — no path found.';
+      updateStats(pqOps, [...pqVisited!].length - 1, 0, 0, false);
+      return;
+    }
+    pqState.sort((a, b) => a[0] - b[0]);
+    const [g, r, c] = pqState.shift()!;
+    pqOps++;
+    const k = `${r},${c}`;
+    if (pqVisited!.has(k) && !(r === sr && c === sc) && costGrid[r][c] === 6) {
+      if (!pqDone) { doStep(); return; }
+    }
+    if (grid[r][c] !== 'start' && grid[r][c] !== 'end') costGrid[r][c] = 4;
+    distGrid[r][c] = g;
+
+    stepInfo.textContent = `Processing (${r},${c}) cost=${g} — PQ size: ${pqState.length}`;
+    statOps.textContent = String(pqOps);
+    statVisited.textContent = String([...pqVisited!].filter((k2) => {
+      const [rr, cc] = k2.split(',').map(Number); return !(rr === sr && cc === sc);
+    }).length);
+
+    if (r === er && c === ec) {
+      pqDone = true;
+      const path = buildPath(pqParent, er, ec);
+      path.forEach(([pr, pc]) => { if (grid[pr][pc] !== 'start' && grid[pr][pc] !== 'end') costGrid[pr][pc] = 5; });
+      updateStats(pqOps, [...pqVisited!].length - 1, g, path.length - 1, true);
+      stepInfo.textContent = `Reached goal! Total cost: ${g}, path: ${path.length - 1} steps`;
+      btnStep.disabled = true;
+      render(); return;
+    }
+
+    for (const [nr, nc] of neighbors(r, c)) {
+      const nk = `${nr},${nc}`;
+      const ng = g + cellCost(nr, nc);
+      if (distGrid[nr][nc] === undefined || ng < distGrid[nr][nc]) {
+        distGrid[nr][nc] = ng;
+        pqParent[nk] = [r, c];
+        pqVisited!.add(nk);
+        pqState.push([ng, nr, nc]);
+        if (costGrid[nr][nc] === 0) costGrid[nr][nc] = 6;
+      }
+    }
+    render();
+  }
+
+  toggleStep.addEventListener('change', function () {
+    if (this.checked) toggleAnimate.checked = true;
+  });
+  toggleDist.addEventListener('change', render);
+
+  document.getElementById('dk-generate')!.addEventListener('click', generateMap);
+  document.getElementById('dk-run')!.addEventListener('click', runDijkstra);
+  btnStep.addEventListener('click', doStep);
+  document.getElementById('dk-clear')!.addEventListener('click', clearPath);
+
+  window.addEventListener('resize', () => { init(); generateMap(); });
+  init();
+  generateMap();
+
+  if (isThumbnailMode()) {
+    toggleAnimate.checked = false;
+    toggleDist.checked = false; // number overlay just clutters a small thumbnail
+    runDijkstra();
+  }
+</script>

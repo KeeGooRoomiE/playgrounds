@@ -1,0 +1,140 @@
+---
+import { getCollection } from 'astro:content';
+import Layout from '../components/Layout.astro';
+import PlaygroundCard from '../components/PlaygroundCard.astro';
+import CategoryNav from '../components/CategoryNav.astro';
+
+const entries = (await getCollection('playgrounds')).sort((a, b) => {
+  if (a.data.order !== b.data.order) return a.data.order - b.data.order;
+  return a.data.title.localeCompare(b.data.title);
+});
+
+const allTags = [...new Set(entries.flatMap((e) => e.data.tags))].sort();
+---
+
+<Layout title="Playgrounds" description="A place to poke algorithms until they reveal how they work.">
+  <div class="index-shell">
+    <!-- The page proper: hero, filter and cards all share one left edge. -->
+    <div class="index-body">
+      <div class="hero">
+        <h1>Playgrounds</h1>
+        <p class="hero-subtitle">A place to poke algorithms until they reveal how they work.</p>
+        <div class="hero-lead">
+          <p>
+            A growing collection of interactive experiments about algorithms, procedural generation, and the
+            weird little machines hiding underneath the things we use every day.
+          </p>
+          <p>
+            Don't just read the explanation — touch it. Reseed the noise, rewrite the rules, paint the terrain,
+            step a search one move at a time. Turn the knobs until the pretty demo falls apart, then figure out why.
+          </p>
+          <p>
+            Every playground is a tiny lab: part explanation, part simulation, part toy. No account, no setup —
+            pick one and start messing with it.
+          </p>
+        </div>
+      </div>
+
+      {allTags.length > 0 && (
+        <div class="tags" id="tag-filter" role="group" aria-label="Filter by tag">
+          {allTags.map((tag) => (
+            <button type="button" class="tag tag-filter" data-tag={tag} aria-pressed="false">{tag}</button>
+          ))}
+        </div>
+      )}
+
+      <div class="grid" id="playground-grid">
+        {entries.map((entry) => <PlaygroundCard entry={entry} />)}
+      </div>
+    </div>
+
+    <!-- Secondary: a shortcut into the same cards, parked in the outer margin.
+         Last in the DOM so narrow screens read title → cards → nav, and it's
+         lifted into the left column by grid placement on wide ones. -->
+    <aside class="index-nav">
+      <CategoryNav entries={entries} />
+    </aside>
+  </div>
+</Layout>
+
+<style>
+  /* Wider than .container on purpose: the nav column lives in the margin
+     outside the reading width, so the body below keeps a normal measure and
+     the nav never eats into it. */
+  .index-shell {
+    max-width: 1520px;
+    margin: 0 auto;
+    padding: 32px 20px 60px;
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1200px);
+    gap: 44px;
+    align-items: start;
+  }
+
+  .index-body {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  .index-nav {
+    grid-column: 1;
+    grid-row: 1;
+    position: sticky;
+    top: 20px;
+  }
+
+  /* Sized by its own column width rather than the global viewport breakpoints,
+     since the body is narrower than the full viewport. */
+  .index-body .grid {
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  }
+
+  /* Below this the margin is gone, so the nav drops under the cards it points
+     at — still reachable, no longer competing with the page for width. */
+  @media (max-width: 1080px) {
+    .index-shell {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 32px;
+    }
+    .index-body { grid-column: 1; }
+    .index-nav {
+      grid-column: 1;
+      grid-row: auto;
+      position: static;
+      border-top: 1px solid var(--border);
+      padding-top: 20px;
+    }
+  }
+</style>
+
+<script>
+  const filterBar = document.getElementById('tag-filter');
+  const grid = document.getElementById('playground-grid');
+  if (filterBar && grid) {
+    const active = new Set<string>();
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>('.pg-card'));
+
+    function applyFilter() {
+      for (const card of cards) {
+        const cardTags = (card.dataset.tags ?? '').split(',').filter(Boolean);
+        const matches = active.size === 0 || cardTags.some((t) => active.has(t));
+        card.classList.toggle('is-hidden', !matches);
+      }
+    }
+
+    filterBar.addEventListener('click', (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('.tag-filter');
+      if (!button) return;
+      const tag = button.dataset.tag!;
+      if (active.has(tag)) {
+        active.delete(tag);
+        button.setAttribute('aria-pressed', 'false');
+      } else {
+        active.add(tag);
+        button.setAttribute('aria-pressed', 'true');
+      }
+      applyFilter();
+    });
+  }
+</script>
