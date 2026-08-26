@@ -72,18 +72,36 @@ jobs:
           GITHUB_REPOSITORY: ""
         run: npm run build
 
+      # Start and wait in ONE step. A bare `npx astro preview &` in its own
+      # step dies with that step's shell, so the next step found nothing
+      # listening — nohup plus redirected stdio is what detaches it for the
+      # rest of the job. Failing here also dumps the server's own log, which
+      # is the difference between "never came up" and knowing why.
       - name: Start preview server
         env:
           GITHUB_REPOSITORY: ""
-        run: npx astro preview --port 4321 &
-
-      - name: Wait for preview server
         run: |
-          for i in $(seq 1 30); do
-            curl -sf http://localhost:4321/ > /dev/null && exit 0
+          set -uo pipefail
+
+          nohup npx astro preview --port 4321 > /tmp/preview.log 2>&1 &
+          echo $! > /tmp/preview.pid
+
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:4321/ > /dev/null 2>&1; then
+              echo "Preview server up after ${i}s"
+              exit 0
+            fi
+            # Fail fast rather than burning the full timeout on a dead process.
+            if ! kill -0 "$(cat /tmp/preview.pid)" 2>/dev/null; then
+              echo "Preview server exited early. Its output:" >&2
+              cat /tmp/preview.log >&2
+              exit 1
+            fi
             sleep 1
           done
-          echo "Preview server never came up" >&2
+
+          echo "Preview server never came up. Its output:" >&2
+          cat /tmp/preview.log >&2
           exit 1
 
       # SLUG goes through `env:` and is quoted, so a dispatched value can only
