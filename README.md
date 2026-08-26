@@ -8,6 +8,8 @@
 
 **A hub of interactive algorithm playgrounds — learn by tweaking, not just reading.**
 
+![Preview cover](public/og-image.png)
+
 🌐 **Live demo:** https://keegooroomie.github.io/playgrounds/
 
 📋 **Changelog:** [CHANGELOG.md](CHANGELOG.md)
