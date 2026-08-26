@@ -5,8 +5,6 @@
 ![Astro](https://img.shields.io/badge/built%20with-Astro-ff5d01)
 [![Last Commit](https://img.shields.io/github/last-commit/KeeGooRoomiE/playgrounds?color=blue)](https://github.com/KeeGooRoomiE/playgrounds/commits/main)
 ![Stars](https://img.shields.io/github/stars/KeeGooRoomiE/playgrounds?style=flat)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/KeeGooRoomiE/playgrounds/blob/main/CONTRIBUTING.md)
-[![Latest Release](https://img.shields.io/github/v/release/KeeGooRoomiE/playgrounds?label=release&color=blue)](https://github.com/KeeGooRoomiE/playgrounds/releases)
 
 **A hub of interactive algorithm playgrounds — learn by tweaking, not just reading.**
 
