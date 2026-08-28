@@ -140,6 +140,27 @@ and commits to `main` only when the `commit` input is set.
 - **Action versions are kept current by Dependabot** (`.github/dependabot.yml`,
   monthly, grouped). Left alone they drift into runner deprecation warnings.
 
+## Commands
+
+The README is written for people reading the site, not building it, so the
+command reference lives here.
+
+```bash
+npm install                                 # Node 22.19+ required; CI runs 24
+npm run dev                                 # dev server on :4321
+npm run build                               # production build to dist/
+npm run preview                             # serve the production build
+npm run check                               # astro check — types, also run in CI
+
+npm run scaffold -- <slug> <index.html>     # draft a playground from a standalone repo
+npm run thumbnail -- <slug> | --all         # capture card image(s); needs a running server
+npm run og                                  # re-render the site's link-preview card
+npm run og -- --title "…" --icon path.svg   # …with one-off overrides
+```
+
+`scaffold`, `thumbnail` and `og` need the dev dependencies, so a `--omit=dev`
+install (what the deploy workflow uses) won't have them.
+
 ## Environment variables
 
 | Var | Set where | Purpose |
