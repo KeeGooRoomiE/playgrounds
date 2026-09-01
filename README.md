@@ -77,7 +77,6 @@ Everything here is free and stays free. If a playground taught you something
 and you'd like the next one to exist, there's a **💛 Support** link in the site
 footer, or:
 
-- [GitHub Sponsors](https://github.com/sponsors/keegooroomie)
 - **BTC** `bc1qpnfut422rr4w77y33h9gmc2jlcmllpdz0wp6nj`
 - **ETH** `0xC99B66E5Cb46A05Ea997B0847a1ec50Df7fe8976`
 - **TRX / USDT (TRC-20)** `TNdpADBLtAXE26L9W2j7qLmkzUwEt2nWvq`

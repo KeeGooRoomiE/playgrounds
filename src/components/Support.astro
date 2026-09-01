@@ -41,13 +41,6 @@ const WALLETS = [
       something, this keeps the next one coming.
     </p>
 
-    <a
-      class="support__sponsor"
-      href="https://github.com/sponsors/keegooroomie"
-      target="_blank"
-      rel="noopener noreferrer"
-    >GitHub Sponsors →</a>
-
     <ul class="support__wallets">
       {WALLETS.map((w) => (
         <li class="support__wallet">
@@ -81,9 +74,12 @@ const WALLETS = [
   .support__summary:hover { color: var(--text); }
 
   /* Deliberately block, not flex: setting `display` on a <details>'s direct
-     child fights the UA's own mechanism for hiding closed content. */
+     child fights the UA's own mechanism for hiding closed content.
+     `margin-inline: auto` matters — the footer is text-align: center, so a
+     capped-width block without it hugs the left edge of a 1160px container
+     and reads as broken next to everything else. */
   .support__panel {
-    margin-top: 14px;
+    margin: 14px auto 0;
     padding: 16px;
     border: 1px solid var(--border);
     border-radius: var(--r-lg);
@@ -97,13 +93,6 @@ const WALLETS = [
     font-size: 13px;
     line-height: 1.55;
     color: var(--muted);
-  }
-
-  .support__sponsor {
-    display: inline-block;
-    margin-bottom: 16px;
-    font-size: 13px;
-    font-weight: 600;
   }
 
   .support__wallets { list-style: none; margin: 0; padding: 0; }
@@ -165,6 +154,27 @@ const WALLETS = [
 </style>
 
 <script>
+  // This sits at the very bottom of the page, so opening it expands into space
+  // that is already below the fold — the panel appears to open "past" the
+  // footer and the reader sees nothing happen. Pull it into view instead.
+  const details = document.querySelector<HTMLDetailsElement>('.support');
+  details?.addEventListener('toggle', () => {
+    if (!details.open) return;
+    const panel = details.querySelector<HTMLElement>('.support__panel');
+    if (!panel) return;
+    // `toggle` fires before the expanded panel has been laid out, so scrolling
+    // straight away targets a box that is still zero-height and lands short.
+    // Reading offsetHeight forces that layout synchronously — deliberately not
+    // requestAnimationFrame, which browsers pause in a backgrounded tab and
+    // which would leave the panel stranded off-screen there.
+    void panel.offsetHeight;
+    // Explicitly instant. Inheriting global.css's `scroll-behavior: smooth`
+    // means the scroll is silently dropped anywhere smooth scrolling is
+    // suppressed (a backgrounded tab, reduced-motion settings) — and a reveal
+    // that sometimes doesn't reveal is worse than one that never animates.
+    panel.scrollIntoView({ block: 'end', behavior: 'instant' });
+  });
+
   document.querySelectorAll<HTMLButtonElement>('.support__copy').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const address = btn.dataset.address;
