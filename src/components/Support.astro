@@ -1,13 +1,17 @@
 ---
-// One quiet disclosure rather than three standing wallet buttons: most traffic
-// arrives straight on a playground page from a link, never sees the repo, and
-// so never sees GitHub's own Sponsor button — but three bright crypto badges
-// on a page whose whole pitch is "no account, no setup" would read as a banner
-// ad. Collapsed by default; nothing about it competes with the content.
+// A modal, not an inline disclosure. The trigger sits in the footer as one
+// more link among peers, so it never competes with the page — but the panel
+// itself opens in the top layer, which sidesteps the two problems an inline
+// <details> had here: it reflowed the footer, and since the footer is the last
+// thing on the page, expanding pushed the panel below the fold.
 //
-// Addresses are verified by checksum, not pasted on trust: BTC bech32 (hrp
-// `bc`), TRON base58check (prefix 0x41), ETH EIP-55 mixed-case. A typo here
-// silently sends money nowhere.
+// Native <dialog> rather than a hand-rolled popup: Esc-to-close, the focus
+// trap, the backdrop and top-layer stacking all come for free and behave the
+// way people expect.
+//
+// Addresses are checksum-verified, not pasted on trust: BTC bech32 (hrp `bc`),
+// TRON base58check (prefix 0x41), ETH EIP-55 mixed-case. A typo here silently
+// sends money nowhere.
 const WALLETS = [
   {
     label: 'Bitcoin',
@@ -32,71 +36,105 @@ const WALLETS = [
 ];
 ---
 
-<details class="support">
-  <summary class="support__summary">💛 Support this project</summary>
+<button type="button" class="support__trigger" id="support-open">💛 Support this project</button>
 
-  <div class="support__panel">
-    <p class="support__intro">
-      Everything here is free and always will be. If a playground taught you
-      something, this keeps the next one coming.
-    </p>
-
-    <ul class="support__wallets">
-      {WALLETS.map((w) => (
-        <li class="support__wallet">
-          <div class="support__meta">
-            <span class="support__short">{w.short}</span>
-            <a href={w.explorer} target="_blank" rel="noopener noreferrer">{w.label}</a>
-          </div>
-          <div class="support__row">
-            <code class="support__addr">{w.address}</code>
-            <button type="button" class="support__copy" data-address={w.address}>Copy</button>
-          </div>
-        </li>
-      ))}
-    </ul>
+<dialog class="support__dialog" id="support-dialog" aria-labelledby="support-title">
+  <div class="support__head">
+    <h2 class="support__title" id="support-title">Support this project</h2>
+    <button type="button" class="support__close" id="support-close" aria-label="Close">✕</button>
   </div>
-</details>
+
+  <p class="support__intro">
+    Everything here is free and always will be. If a playground taught you
+    something, this keeps the next one coming.
+  </p>
+
+  <ul class="support__wallets">
+    {WALLETS.map((w) => (
+      <li class="support__wallet">
+        <div class="support__meta">
+          <span class="support__short">{w.short}</span>
+          <a href={w.explorer} target="_blank" rel="noopener noreferrer">{w.label}</a>
+        </div>
+        <div class="support__row">
+          <code class="support__addr">{w.address}</code>
+          <button type="button" class="support__copy" data-address={w.address}>Copy</button>
+        </div>
+      </li>
+    ))}
+  </ul>
+</dialog>
 
 <style>
-  .support { margin-top: 18px; }
-
-  .support__summary {
-    display: inline-block;
+  /* Styled to sit level with the footer's other links rather than as a button. */
+  .support__trigger {
+    width: auto;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-weight: 500;
+    color: var(--accent);
     cursor: pointer;
-    list-style: none;
-    font-size: 13px;
-    color: var(--muted);
-    padding: 4px 0;
-    user-select: none;
   }
-  .support__summary::-webkit-details-marker { display: none; }
-  .support__summary:hover { color: var(--text); }
+  .support__trigger:hover { text-decoration: underline; background: none; }
 
-  /* Deliberately block, not flex: setting `display` on a <details>'s direct
-     child fights the UA's own mechanism for hiding closed content.
-     `margin-inline: auto` matters — the footer is text-align: center, so a
-     capped-width block without it hugs the left edge of a 1160px container
-     and reads as broken next to everything else. */
-  .support__panel {
-    margin: 14px auto 0;
-    padding: 16px;
+  .support__dialog {
+    /* global.css resets `* { margin: 0 }`, which clobbers the UA's own
+       `margin: auto` on <dialog> — without this the modal pins to the
+       top-left corner instead of centring. */
+    margin: auto;
+    width: min(560px, calc(100vw - 32px));
+    max-height: calc(100vh - 64px);
+    overflow-y: auto;
+    padding: 20px;
     border: 1px solid var(--border);
     border-radius: var(--r-lg);
     background: var(--card-bg);
-    max-width: 560px;
+    color: var(--text);
     text-align: left;
+    font-size: 13px;
+  }
+  .support__dialog::backdrop {
+    background: rgba(0, 0, 0, 0.45);
   }
 
+  .support__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .support__title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+  .support__close {
+    width: auto;
+    margin: 0;
+    padding: 2px 6px;
+    border: 0;
+    background: none;
+    font-size: 15px;
+    line-height: 1;
+    color: var(--muted-2);
+    cursor: pointer;
+  }
+  .support__close:hover { color: var(--text); background: none; }
+
   .support__intro {
-    margin: 0 0 14px;
+    margin: 0 0 16px;
     font-size: 13px;
     line-height: 1.55;
     color: var(--muted);
   }
 
   .support__wallets { list-style: none; margin: 0; padding: 0; }
-  .support__wallet { margin: 0 0 12px; }
+  .support__wallet { margin: 0 0 14px; }
   .support__wallet:last-child { margin-bottom: 0; }
 
   .support__meta {
@@ -111,20 +149,16 @@ const WALLETS = [
     letter-spacing: 0.4px;
     color: var(--muted-2);
   }
-  .support__meta a { font-size: 12px; color: var(--muted); }
+  .support__meta a { font-size: 12px; color: var(--muted); font-weight: 400; }
   .support__meta a:hover { color: var(--accent); }
 
-  .support__row {
-    display: flex;
-    align-items: stretch;
-    gap: 8px;
-  }
+  .support__row { display: flex; align-items: stretch; gap: 8px; }
 
   .support__addr {
     flex: 1;
     min-width: 0;
-    /* The address must stay selectable and fully readable — truncating one
-       invites someone copying a partial string by hand. */
+    /* Stays fully readable and selectable — truncating an address invites
+       someone copying a partial string by hand. */
     overflow-x: auto;
     white-space: nowrap;
     background: var(--code-bg);
@@ -142,10 +176,7 @@ const WALLETS = [
     padding: 6px 12px;
     font-size: 11px;
   }
-  .support__copy[data-copied] {
-    border-color: #22c55e;
-    color: #22c55e;
-  }
+  .support__copy[data-copied] { border-color: #22c55e; color: #22c55e; }
 
   @media (max-width: 560px) {
     .support__row { flex-direction: column; }
@@ -154,25 +185,17 @@ const WALLETS = [
 </style>
 
 <script>
-  // This sits at the very bottom of the page, so opening it expands into space
-  // that is already below the fold — the panel appears to open "past" the
-  // footer and the reader sees nothing happen. Pull it into view instead.
-  const details = document.querySelector<HTMLDetailsElement>('.support');
-  details?.addEventListener('toggle', () => {
-    if (!details.open) return;
-    const panel = details.querySelector<HTMLElement>('.support__panel');
-    if (!panel) return;
-    // `toggle` fires before the expanded panel has been laid out, so scrolling
-    // straight away targets a box that is still zero-height and lands short.
-    // Reading offsetHeight forces that layout synchronously — deliberately not
-    // requestAnimationFrame, which browsers pause in a backgrounded tab and
-    // which would leave the panel stranded off-screen there.
-    void panel.offsetHeight;
-    // Explicitly instant. Inheriting global.css's `scroll-behavior: smooth`
-    // means the scroll is silently dropped anywhere smooth scrolling is
-    // suppressed (a backgrounded tab, reduced-motion settings) — and a reveal
-    // that sometimes doesn't reveal is worse than one that never animates.
-    panel.scrollIntoView({ block: 'end', behavior: 'instant' });
+  const dialog = document.getElementById('support-dialog') as HTMLDialogElement | null;
+  const openBtn = document.getElementById('support-open');
+  const closeBtn = document.getElementById('support-close');
+
+  openBtn?.addEventListener('click', () => dialog?.showModal());
+  closeBtn?.addEventListener('click', () => dialog?.close());
+
+  // A click on the backdrop is reported against the dialog element itself, so
+  // comparing the target is what distinguishes "outside" from "on the card".
+  dialog?.addEventListener('click', (event) => {
+    if (event.target === dialog) dialog.close();
   });
 
   document.querySelectorAll<HTMLButtonElement>('.support__copy').forEach((btn) => {
@@ -180,23 +203,18 @@ const WALLETS = [
       const address = btn.dataset.address;
       if (!address) return;
 
-      const done = () => {
-        const original = btn.textContent;
+      try {
+        await navigator.clipboard.writeText(address);
         btn.textContent = 'Copied';
         btn.dataset.copied = 'true';
         setTimeout(() => {
-          btn.textContent = original;
+          btn.textContent = 'Copy';
           delete btn.dataset.copied;
         }, 1600);
-      };
-
-      try {
-        await navigator.clipboard.writeText(address);
-        done();
       } catch {
-        // Clipboard API needs a secure context and permission; if it's refused
-        // the address is still right there to select by hand, so select it for
-        // them rather than failing silently.
+        // Clipboard access needs a secure context and can still be refused; if
+        // it is, select the address so it's one keystroke away rather than
+        // failing silently.
         const code = btn.previousElementSibling;
         if (code) {
           const range = document.createRange();
