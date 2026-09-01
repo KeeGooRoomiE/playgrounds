@@ -1,19 +1,25 @@
 ---
+import Support from './Support.astro';
+
 const year = new Date().getFullYear();
 ---
 
 <footer>
-  <div class="container footer__inner">
-    <p class="footer__line">
-      Playgrounds Lab — Interactive algorithm pages by
-      {' '}
-      <a href="https://github.com/KeeGooRoomiE" target="_blank" rel="noopener noreferrer">@keegooroomie</a>
-    </p>
-    <p class="footer__line">
-      <a href="https://keegooroomie.github.io/cv_hub/en/" target="_blank" rel="noopener noreferrer">Alexander Gusarov</a>
-      {' '}© {year} ·{' '}
-      <a href="https://github.com/KeeGooRoomiE/playgrounds" target="_blank" rel="noopener noreferrer">GitHub</a>
-    </p>
+  <div class="container">
+    <div class="footer__inner">
+      <p class="footer__line">
+        Playgrounds — Interactive algorithm pages by
+        {' '}
+        <a href="https://github.com/KeeGooRoomiE" target="_blank" rel="noopener noreferrer">@keegooroomie</a>
+      </p>
+      <p class="footer__line">
+        <a href="https://keegooroomie.github.io/cv_hub/en/" target="_blank" rel="noopener noreferrer">Alexander Gusarov</a>
+        {' '}© {year} ·{' '}
+        <a href="https://github.com/KeeGooRoomiE/playgrounds" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </p>
+    </div>
+
+    <Support />
   </div>
 </footer>
 

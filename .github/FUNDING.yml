@@ -1,4 +1,19 @@
-# GitHub Sponsors and other funding options
+# GitHub Sponsors and other funding options.
+#
+# GitHub only renders the Sponsor button on the repository page, and most
+# traffic here lands straight on a playground from a shared link and never
+# sees it — so the site's own footer carries the same options via
+# src/components/Support.astro. Keep the two in sync.
+#
+# Addresses are checksum-verified, not pasted on trust: BTC bech32 (hrp `bc`),
+# ETH EIP-55 mixed-case, TRON base58check (prefix 0x41).
 
 github: [keegooroomie]
-# buy_me_a_coffee: YOUR_BUYMEACOFFEE_USERNAME
+
+custom:
+  # Bitcoin
+  - "https://blockstream.info/address/bc1qpnfut422rr4w77y33h9gmc2jlcmllpdz0wp6nj"
+  # Ethereum
+  - "https://etherscan.io/address/0xC99B66E5Cb46A05Ea997B0847a1ec50Df7fe8976"
+  # Tron — accepts native TRX and TRC-20 USDT
+  - "https://tronscan.org/#/address/TNdpADBLtAXE26L9W2j7qLmkzUwEt2nWvq"

@@ -1,0 +1,203 @@
+---
+// One quiet disclosure rather than three standing wallet buttons: most traffic
+// arrives straight on a playground page from a link, never sees the repo, and
+// so never sees GitHub's own Sponsor button — but three bright crypto badges
+// on a page whose whole pitch is "no account, no setup" would read as a banner
+// ad. Collapsed by default; nothing about it competes with the content.
+//
+// Addresses are verified by checksum, not pasted on trust: BTC bech32 (hrp
+// `bc`), TRON base58check (prefix 0x41), ETH EIP-55 mixed-case. A typo here
+// silently sends money nowhere.
+const WALLETS = [
+  {
+    label: 'Bitcoin',
+    short: 'BTC',
+    address: 'bc1qpnfut422rr4w77y33h9gmc2jlcmllpdz0wp6nj',
+    explorer: 'https://blockstream.info/address/bc1qpnfut422rr4w77y33h9gmc2jlcmllpdz0wp6nj',
+  },
+  {
+    label: 'Ethereum',
+    short: 'ETH',
+    address: '0xC99B66E5Cb46A05Ea997B0847a1ec50Df7fe8976',
+    explorer: 'https://etherscan.io/address/0xC99B66E5Cb46A05Ea997B0847a1ec50Df7fe8976',
+  },
+  {
+    // Same address takes native TRX and TRC-20 USDT. Spelled out because
+    // sending USDT on the wrong network is the usual way to lose it.
+    label: 'Tron — TRX and USDT (TRC-20)',
+    short: 'TRX / USDT',
+    address: 'TNdpADBLtAXE26L9W2j7qLmkzUwEt2nWvq',
+    explorer: 'https://tronscan.org/#/address/TNdpADBLtAXE26L9W2j7qLmkzUwEt2nWvq',
+  },
+];
+---
+
+<details class="support">
+  <summary class="support__summary">💛 Support this project</summary>
+
+  <div class="support__panel">
+    <p class="support__intro">
+      Everything here is free and always will be. If a playground taught you
+      something, this keeps the next one coming.
+    </p>
+
+    <a
+      class="support__sponsor"
+      href="https://github.com/sponsors/keegooroomie"
+      target="_blank"
+      rel="noopener noreferrer"
+    >GitHub Sponsors →</a>
+
+    <ul class="support__wallets">
+      {WALLETS.map((w) => (
+        <li class="support__wallet">
+          <div class="support__meta">
+            <span class="support__short">{w.short}</span>
+            <a href={w.explorer} target="_blank" rel="noopener noreferrer">{w.label}</a>
+          </div>
+          <div class="support__row">
+            <code class="support__addr">{w.address}</code>
+            <button type="button" class="support__copy" data-address={w.address}>Copy</button>
+          </div>
+        </li>
+      ))}
+    </ul>
+  </div>
+</details>
+
+<style>
+  .support { margin-top: 18px; }
+
+  .support__summary {
+    display: inline-block;
+    cursor: pointer;
+    list-style: none;
+    font-size: 13px;
+    color: var(--muted);
+    padding: 4px 0;
+    user-select: none;
+  }
+  .support__summary::-webkit-details-marker { display: none; }
+  .support__summary:hover { color: var(--text); }
+
+  /* Deliberately block, not flex: setting `display` on a <details>'s direct
+     child fights the UA's own mechanism for hiding closed content. */
+  .support__panel {
+    margin-top: 14px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    background: var(--card-bg);
+    max-width: 560px;
+    text-align: left;
+  }
+
+  .support__intro {
+    margin: 0 0 14px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+
+  .support__sponsor {
+    display: inline-block;
+    margin-bottom: 16px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .support__wallets { list-style: none; margin: 0; padding: 0; }
+  .support__wallet { margin: 0 0 12px; }
+  .support__wallet:last-child { margin-bottom: 0; }
+
+  .support__meta {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+  .support__short {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    color: var(--muted-2);
+  }
+  .support__meta a { font-size: 12px; color: var(--muted); }
+  .support__meta a:hover { color: var(--accent); }
+
+  .support__row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .support__addr {
+    flex: 1;
+    min-width: 0;
+    /* The address must stay selectable and fully readable — truncating one
+       invites someone copying a partial string by hand. */
+    overflow-x: auto;
+    white-space: nowrap;
+    background: var(--code-bg);
+    color: var(--text);
+    padding: 7px 9px;
+    border-radius: var(--r-sm);
+    font-size: 11.5px;
+    line-height: 1.4;
+  }
+
+  .support__copy {
+    flex: 0 0 auto;
+    width: auto;
+    margin: 0;
+    padding: 6px 12px;
+    font-size: 11px;
+  }
+  .support__copy[data-copied] {
+    border-color: #22c55e;
+    color: #22c55e;
+  }
+
+  @media (max-width: 560px) {
+    .support__row { flex-direction: column; }
+    .support__copy { width: 100%; }
+  }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>('.support__copy').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const address = btn.dataset.address;
+      if (!address) return;
+
+      const done = () => {
+        const original = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.dataset.copied = 'true';
+        setTimeout(() => {
+          btn.textContent = original;
+          delete btn.dataset.copied;
+        }, 1600);
+      };
+
+      try {
+        await navigator.clipboard.writeText(address);
+        done();
+      } catch {
+        // Clipboard API needs a secure context and permission; if it's refused
+        // the address is still right there to select by hand, so select it for
+        // them rather than failing silently.
+        const code = btn.previousElementSibling;
+        if (code) {
+          const range = document.createRange();
+          range.selectNodeContents(code);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+        }
+        btn.textContent = 'Select & copy';
+        setTimeout(() => { btn.textContent = 'Copy'; }, 2200);
+      }
+    });
+  });
+</script>
