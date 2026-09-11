@@ -6,6 +6,14 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] — 2026-09-11
+
+### Added
+- **Kruskal's Algorithm** playground — the minimum spanning tree algorithm run as a maze generator, with a disjoint-set union visualised by colouring each cell by its current component, so merges show as colours collapsing into one. Three interchangeable skins (Maze, City streets, Circuit board) change the palette only, never the grid or the edge order. First playground authored directly in this repo rather than migrated from a standalone one.
+
+### Changed
+- `sourceRepo` is now optional. The detail page printed "Originally built as a standalone project" beside it unconditionally, which is false for a playground written here; the line is now skipped when the field is absent.
+
 ## [0.4.0] — 2026-08-26
 
 ### Added

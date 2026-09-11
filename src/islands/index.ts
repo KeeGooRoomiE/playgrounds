@@ -5,6 +5,7 @@ import Bfs from './Bfs.astro';
 import Dfs from './Dfs.astro';
 import Dijkstra from './Dijkstra.astro';
 import GalaxySampler from './GalaxySampler.astro';
+import Kruskal from './Kruskal.astro';
 
 export const islands: Record<string, any> = {
   'perlin-noise': PerlinNoise,
@@ -14,4 +15,5 @@ export const islands: Record<string, any> = {
   dfs: Dfs,
   dijkstra: Dijkstra,
   'galaxy-sampler': GalaxySampler,
+  kruskal: Kruskal,
 };

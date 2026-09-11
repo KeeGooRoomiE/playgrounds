@@ -27,6 +27,9 @@ description: One or two sentences describing what this playground shows.
 thumbnail: /thumbnails/algorithm-name.png
 
 # The original standalone repo this was migrated from.
+# Optional. Only for a playground migrated from its own standalone repo —
+# the page prints "Originally built as a standalone project" next to it.
+# Delete this line for one written directly here.
 sourceRepo: https://github.com/KeeGooRoomiE/algorithm-name-playground
 
 # Lookup key into src/islands/index.ts — must match an exported entry.

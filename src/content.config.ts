@@ -14,7 +14,10 @@ const playgrounds = defineCollection({
     category: z.string(),
     description: z.string(),
     thumbnail: z.string(),
-    sourceRepo: z.string().url(),
+    // Only for playgrounds migrated from their own standalone repo — the
+    // detail page prints "Originally built as a standalone project" next to
+    // it, which is false for one written here. Omit it in that case.
+    sourceRepo: z.string().url().optional(),
     island: z.string(),
     background: z.string().optional(),
     // Extra query-string params appended to the URL scripts/capture-thumbnail.mjs

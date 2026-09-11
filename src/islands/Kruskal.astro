@@ -1,0 +1,388 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Skin</div>
+      <select id="kr-skin">
+        <option value="maze">Maze</option>
+        <option value="city">City streets</option>
+        <option value="circuit">Circuit board</option>
+      </select>
+    </div>
+
+    <div>
+      <button type="button" class="btn" id="kr-generate">🎲 New grid</button>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Mode</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="toggle-row">
+          <span class="toggle-label">Animate carving</span>
+          <label class="toggle"><input type="checkbox" id="kr-toggle-animate" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Step-by-step (165ms)</span>
+          <label class="toggle"><input type="checkbox" id="kr-toggle-step" /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Colour components</span>
+          <label class="toggle"><input type="checkbox" id="kr-toggle-sets" checked /><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="kr-run">▶ Run Kruskal</button>
+      <button type="button" class="btn" id="kr-step" disabled>→ Next edge</button>
+      <button type="button" class="btn" id="kr-reset">↺ Rebuild walls</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Edges considered</span><span class="stat-val" id="kr-stat-seen">—</span></div>
+      <div class="stat-row"><span>Walls removed</span><span class="stat-val" id="kr-stat-accepted">—</span></div>
+      <div class="stat-row"><span>Rejected (cycle)</span><span class="stat-val" id="kr-stat-rejected">—</span></div>
+      <div class="stat-row"><span>Components left</span><span class="stat-val" id="kr-stat-components">—</span></div>
+      <div class="stat-row"><span>Status</span><span class="stat-val" id="kr-stat-status">Ready</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Legend</div>
+      <div class="legend-item"><span class="legend-dot" id="kr-dot-wall"></span> Wall / block</div>
+      <div class="legend-item"><span class="legend-dot" id="kr-dot-open"></span> Carved passage</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Edge just accepted</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> Edge rejected — would close a loop</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap" id="kr-wrap">
+      <canvas id="kr-canvas"></canvas>
+    </div>
+    <div class="step-info" id="kr-step-info"></div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  /* Same reason as the pathfinding islands: the grid is sized from
+     wrap.clientWidth, so without a cap the intrinsic canvas width wins on a
+     shrink and the wrapper can never get smaller again. */
+  canvas { width: auto; height: auto; display: block; max-width: 100%; }
+  .legend-dot { border-radius: 2px; width: 12px; height: 12px; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+</style>
+
+<script>
+  import { getRandom, isThumbnailMode } from '../lib/seed';
+
+  const rand = getRandom();
+  const canvas = document.getElementById('kr-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const wrap = document.getElementById('kr-wrap')!;
+  const CELL = 20;
+
+  // The skin only ever changes colours and whether road markings are drawn —
+  // never the grid, the edge order or the algorithm. That separation is the
+  // point: the same spanning tree is a maze, a street plan or a copper trace
+  // depending on nothing but the palette.
+  type Skin = { wall: string; open: string; grid: string; centerline: string | null; frame: string };
+  const SKINS: Record<string, Skin> = {
+    maze:    { wall: '#1e293b', open: '#f8fafc', grid: '#e2e8f0', centerline: null,      frame: '#1e293b' },
+    city:    { wall: '#cbd5e1', open: '#475569', grid: '#94a3b8', centerline: '#fbbf24', frame: '#cbd5e1' },
+    circuit: { wall: '#0b3d2e', open: '#b87333', grid: '#0f5138', centerline: null,      frame: '#0b3d2e' },
+  };
+
+  const ACCEPT = '#f59e0b';
+  const REJECT = '#ef4444';
+
+  let COLS = 0, ROWS = 0;
+  let cellRows = 0, cellCols = 0;
+  let grid: number[][] = [];          // 1 = wall, 0 = open
+  let parent: number[] = [];
+  let size: number[] = [];
+  let edges: { a: number; b: number; wr: number; wc: number }[] = [];
+  let cursor = 0;
+  let accepted = 0, rejected = 0, components = 0;
+  let lastEdge: { wr: number; wc: number; ok: boolean } | null = null;
+  let running = false;
+  let animIds: ReturnType<typeof setTimeout>[] = [];
+  let autoStepId: ReturnType<typeof setTimeout> | null = null;
+
+  const skinSelect = document.getElementById('kr-skin') as HTMLSelectElement;
+  const toggleAnimate = document.getElementById('kr-toggle-animate') as HTMLInputElement;
+  const toggleStep = document.getElementById('kr-toggle-step') as HTMLInputElement;
+  const toggleSets = document.getElementById('kr-toggle-sets') as HTMLInputElement;
+  const btnStep = document.getElementById('kr-step') as HTMLButtonElement;
+  const statSeen = document.getElementById('kr-stat-seen')!;
+  const statAccepted = document.getElementById('kr-stat-accepted')!;
+  const statRejected = document.getElementById('kr-stat-rejected')!;
+  const statComponents = document.getElementById('kr-stat-components')!;
+  const statStatus = document.getElementById('kr-stat-status')!;
+  const stepInfo = document.getElementById('kr-step-info')!;
+  const dotWall = document.getElementById('kr-dot-wall')!;
+  const dotOpen = document.getElementById('kr-dot-open')!;
+
+  function skin() { return SKINS[skinSelect.value] ?? SKINS.maze; }
+
+  function cancelAnims() { animIds.forEach(clearTimeout); animIds = []; }
+  function cancelAuto() { if (autoStepId) { clearTimeout(autoStepId); autoStepId = null; } }
+
+  function init() {
+    // Odd counts only: cells live on odd indices and the walls between them on
+    // even ones, so an even dimension would leave a half-cell at the edge.
+    COLS = Math.floor(wrap.clientWidth / CELL);
+    if (COLS % 2 === 0) COLS--;
+    ROWS = Math.floor(520 / CELL);
+    if (ROWS % 2 === 0) ROWS--;
+    COLS = Math.max(COLS, 9);
+    ROWS = Math.max(ROWS, 9);
+    canvas.width = COLS * CELL;
+    canvas.height = ROWS * CELL;
+    cellRows = (ROWS - 1) / 2;
+    cellCols = (COLS - 1) / 2;
+  }
+
+  const cellId = (i: number, j: number) => i * cellCols + j;
+
+  function find(x: number): number {
+    while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+    return x;
+  }
+
+  function union(a: number, b: number) {
+    let ra = find(a), rb = find(b);
+    if (ra === rb) return false;
+    if (size[ra] < size[rb]) { const t = ra; ra = rb; rb = t; }
+    parent[rb] = ra;
+    size[ra] += size[rb];
+    return true;
+  }
+
+  function buildEdges() {
+    edges = [];
+    for (let i = 0; i < cellRows; i++) {
+      for (let j = 0; j < cellCols; j++) {
+        if (j + 1 < cellCols) edges.push({ a: cellId(i, j), b: cellId(i, j + 1), wr: 2 * i + 1, wc: 2 * j + 2 });
+        if (i + 1 < cellRows) edges.push({ a: cellId(i, j), b: cellId(i + 1, j), wr: 2 * i + 2, wc: 2 * j + 1 });
+      }
+    }
+    // Kruskal sorts by weight; on an unweighted grid every edge ties, so a
+    // shuffle is the honest stand-in for "some arbitrary order of equal costs".
+    for (let k = edges.length - 1; k > 0; k--) {
+      const m = Math.floor(rand() * (k + 1));
+      const t = edges[k]; edges[k] = edges[m]; edges[m] = t;
+    }
+  }
+
+  function resetWalls() {
+    cancelAnims(); cancelAuto();
+    running = false;
+    grid = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+    for (let i = 0; i < cellRows; i++) {
+      for (let j = 0; j < cellCols; j++) grid[2 * i + 1][2 * j + 1] = 0;
+    }
+    const n = cellRows * cellCols;
+    parent = Array.from({ length: n }, (_, i) => i);
+    size = Array(n).fill(1);
+    cursor = 0; accepted = 0; rejected = 0; components = n;
+    lastEdge = null;
+    btnStep.disabled = true;
+    stepInfo.textContent = '';
+    updateStats('Ready');
+    render();
+  }
+
+  function generate() {
+    init();
+    buildEdges();
+    resetWalls();
+  }
+
+  function updateStats(status: string) {
+    statSeen.textContent = cursor ? String(cursor) : '—';
+    statAccepted.textContent = accepted ? String(accepted) : '—';
+    statRejected.textContent = rejected ? String(rejected) : '—';
+    statComponents.textContent = String(components);
+    statStatus.textContent = status;
+  }
+
+  function componentColour(root: number) {
+    // Hue straight off the root id: two cells share a colour exactly when they
+    // share a set, so merges are visible as colours collapsing into one.
+    const hue = (root * 47) % 360;
+    return `hsl(${hue} 62% 72%)`;
+  }
+
+  function render() {
+    const s = skin();
+    wrap.style.background = s.frame;
+    dotWall.style.background = s.wall;
+    dotOpen.style.background = s.open;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const showSets = toggleSets.checked && components > 1;
+
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        let fill = grid[r][c] === 1 ? s.wall : s.open;
+
+        if (showSets && grid[r][c] === 0) {
+          const i = (r - 1) / 2, j = (c - 1) / 2;
+          if (Number.isInteger(i) && Number.isInteger(j)) {
+            fill = componentColour(find(cellId(i, j)));
+          } else {
+            // A carved wall belongs to whichever set its two neighbours now share.
+            const ni = Math.floor((r - 1) / 2), nj = Math.floor((c - 1) / 2);
+            const anchor = Number.isInteger((r - 1) / 2)
+              ? cellId((r - 1) / 2, nj)
+              : cellId(ni, (c - 1) / 2);
+            fill = componentColour(find(anchor));
+          }
+        }
+
+        ctx.fillStyle = fill;
+        ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+
+        if (grid[r][c] === 0) {
+          ctx.strokeStyle = s.grid; ctx.lineWidth = 0.5;
+          ctx.strokeRect(c * CELL + 0.5, r * CELL + 0.5, CELL - 1, CELL - 1);
+        }
+      }
+    }
+
+    if (s.centerline) drawCentrelines(s.centerline);
+    if (lastEdge) highlightEdge(lastEdge);
+  }
+
+  function drawCentrelines(colour: string) {
+    ctx.fillStyle = colour;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (grid[r][c] !== 0) continue;
+        const horizontal = (c > 0 && grid[r][c - 1] === 0) || (c < COLS - 1 && grid[r][c + 1] === 0);
+        const x = c * CELL, y = r * CELL;
+        if (horizontal) ctx.fillRect(x + CELL * 0.25, y + CELL / 2 - 0.75, CELL * 0.5, 1.5);
+        else ctx.fillRect(x + CELL / 2 - 0.75, y + CELL * 0.25, 1.5, CELL * 0.5);
+      }
+    }
+  }
+
+  function highlightEdge(e: { wr: number; wc: number; ok: boolean }) {
+    ctx.strokeStyle = e.ok ? ACCEPT : REJECT;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(e.wc * CELL + 1, e.wr * CELL + 1, CELL - 2, CELL - 2);
+  }
+
+  /** One edge of Kruskal. Returns false when the edge list is exhausted. */
+  function stepOnce() {
+    if (cursor >= edges.length) return false;
+    const e = edges[cursor++];
+    if (union(e.a, e.b)) {
+      grid[e.wr][e.wc] = 0;
+      accepted++;
+      components--;
+      lastEdge = { wr: e.wr, wc: e.wc, ok: true };
+    } else {
+      rejected++;
+      lastEdge = { wr: e.wr, wc: e.wc, ok: false };
+    }
+    return true;
+  }
+
+  function finish(message: string) {
+    running = false;
+    btnStep.disabled = true;
+    lastEdge = null;
+    stepInfo.textContent = message;
+    updateStats(components === 1 ? 'Spanning tree ✓' : 'Done');
+    render();
+  }
+
+  function run() {
+    cancelAnims(); cancelAuto();
+    resetWalls();
+    running = true;
+
+    if (toggleStep.checked) {
+      btnStep.disabled = false;
+      updateStats('Running');
+      stepInfo.textContent = `${edges.length} candidate edges, shuffled. Press → or wait.`;
+      autoStep();
+      return;
+    }
+
+    if (!toggleAnimate.checked) {
+      while (stepOnce()) { /* exhaust */ }
+      finish(`${accepted} walls removed, ${rejected} edges rejected as loops.`);
+      return;
+    }
+
+    const DELAY = 9;
+    const total = edges.length;
+    for (let k = 0; k < total; k++) {
+      animIds.push(setTimeout(() => {
+        if (!running) return;
+        stepOnce();
+        updateStats('Running');
+        render();
+        if (k === total - 1) finish(`${accepted} walls removed, ${rejected} edges rejected as loops.`);
+      }, k * DELAY));
+    }
+  }
+
+  function autoStep() {
+    cancelAuto();
+    if (!running) return;
+    autoStepId = setTimeout(() => {
+      autoStepId = null;
+      if (!running) return;
+      doStep();
+      if (running) autoStep();
+    }, 165);
+  }
+
+  function doStep() {
+    if (!running) return;
+    if (!stepOnce()) {
+      finish(`${accepted} walls removed, ${rejected} edges rejected as loops.`);
+      return;
+    }
+    const verdict = lastEdge!.ok
+      ? 'different sets → wall removed, sets merged'
+      : 'same set already → rejected, it would close a loop';
+    stepInfo.textContent = `Edge ${cursor}/${edges.length}: ${verdict}`;
+    updateStats('Running');
+    render();
+  }
+
+  toggleStep.addEventListener('change', function () {
+    if (this.checked) toggleAnimate.checked = true;
+  });
+  toggleSets.addEventListener('change', render);
+  skinSelect.addEventListener('change', render);
+
+  document.getElementById('kr-generate')!.addEventListener('click', generate);
+  document.getElementById('kr-run')!.addEventListener('click', run);
+  document.getElementById('kr-reset')!.addEventListener('click', resetWalls);
+  btnStep.addEventListener('click', doStep);
+
+  // One-shot draw, so the resize handler has to rebuild the grid rather than
+  // just resize the canvas — a bare size reset wipes it blank, and a resize
+  // fires right after first paint when the scrollbar appears.
+  window.addEventListener('resize', generate);
+
+  const params = new URLSearchParams(location.search);
+  const urlSkin = params.get('skin');
+  if (urlSkin && SKINS[urlSkin]) skinSelect.value = urlSkin;
+
+  generate();
+
+  if (isThumbnailMode()) {
+    toggleAnimate.checked = false;
+    toggleStep.checked = false;
+    toggleSets.checked = false;
+    run();
+  }
+</script>

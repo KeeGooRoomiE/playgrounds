@@ -51,11 +51,13 @@ const Background = entry.data.background ? backgrounds[entry.data.background] : 
     <!-- The playground itself comes last, after the write-up. -->
     {Island && <Island />}
 
-    <p class="info-box">
-      Originally built as a standalone project:
-      {' '}
-      <a href={entry.data.sourceRepo} target="_blank" rel="noopener noreferrer">{entry.data.sourceRepo}</a>
-    </p>
+    {entry.data.sourceRepo && (
+      <p class="info-box">
+        Originally built as a standalone project:
+        {' '}
+        <a href={entry.data.sourceRepo} target="_blank" rel="noopener noreferrer">{entry.data.sourceRepo}</a>
+      </p>
+    )}
   </div>
 
   <button type="button" class="to-top" id="to-top" aria-label="Back to top" hidden>↑</button>
