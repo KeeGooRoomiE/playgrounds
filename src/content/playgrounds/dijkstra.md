@@ -2,7 +2,7 @@
 title: Dijkstra's Algorithm
 order: 60
 tags: [pathfinding, graph, weighted]
-category: pathfinding
+category: graph
 description: The priority-queue generalization of BFS to weighted graphs — finds the cheapest path, not the shortest one, by always expanding the least-costly frontier node first.
 thumbnail: /thumbnails/dijkstra.png
 sourceRepo: https://github.com/KeeGooRoomiE/dijkstra-playground

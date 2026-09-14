@@ -2,7 +2,7 @@
 title: BFS — Breadth-First Search
 order: 40
 tags: [pathfinding, graph]
-category: pathfinding
+category: graph
 description: The queue-based traversal that expands a maze layer by layer — guaranteed shortest path on unweighted graphs, no heuristics required.
 thumbnail: /thumbnails/bfs.png
 sourceRepo: https://github.com/KeeGooRoomiE/bfs-pathfinding-playground

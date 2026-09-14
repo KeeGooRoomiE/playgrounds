@@ -2,7 +2,7 @@
 title: DFS — Depth-First Search
 order: 50
 tags: [pathfinding, graph]
-category: pathfinding
+category: graph
 description: The stack-based traversal that dives as deep as possible before backtracking — finds a path, not necessarily the shortest one.
 thumbnail: /thumbnails/dfs.png
 sourceRepo: https://github.com/KeeGooRoomiE/dfs-pathfinding-playground

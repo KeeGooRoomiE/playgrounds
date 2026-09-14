@@ -2,7 +2,7 @@
 title: Kruskal's Algorithm
 order: 80
 tags: [procedural, graph]
-category: procedural
+category: graph
 description: The minimum spanning tree algorithm, run as a maze generator — sort every edge, keep the ones that join two separate pieces, reject the ones that would close a loop.
 thumbnail: /thumbnails/kruskal.png
 island: kruskal
