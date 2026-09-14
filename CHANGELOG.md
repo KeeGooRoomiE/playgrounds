@@ -6,6 +6,11 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.0] — 2026-09-14
+
+### Added
+- **Brownian Tree** playground — diffusion-limited aggregation on a lattice, with a distance map and safe long hops so thousands of particles grow in seconds. Five seed shapes (point, ground line, inward ring, window frame, scattered seeds), tap-to-plant, stickiness and wind, colouring by arrival time or branch weight, a one-particle mode that draws a true random walk, live tip-extension and rough fractal-dimension readouts, and six skins: Coral, Lichtenberg figure, Lightning strike, Frosty window, Fungal spread, Mineral dendrite. Growth is independent of skin and speed for a given seed.
+
 ## [0.6.0] — 2026-09-14
 
 ### Added

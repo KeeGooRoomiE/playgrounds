@@ -1,0 +1,770 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Skin</div>
+      <select id="bt-skin">
+        <option value="coral">Coral</option>
+        <option value="lichtenberg">Lichtenberg figure</option>
+        <option value="lightning">Lightning strike</option>
+        <option value="frost">Frosty window</option>
+        <option value="fungus">Fungal spread</option>
+        <option value="mineral">Mineral dendrite</option>
+      </select>
+    </div>
+
+    <div>
+      <div class="ctrl-label">Seed</div>
+      <select id="bt-seed">
+        <option value="point">Single point</option>
+        <option value="line">Ground line</option>
+        <option value="ring">Ring — grows inward</option>
+        <option value="frame">Window frame</option>
+        <option value="multi">Five scattered seeds</option>
+      </select>
+    </div>
+
+    <div>
+      <div class="ctrl-label">Colour by</div>
+      <select id="bt-colour">
+        <option value="age">Arrival time</option>
+        <option value="weight">Branch weight</option>
+        <option value="flat">Nothing — one colour</option>
+      </select>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="range-value"><span class="range-label">Stickiness</span><span class="range-number" id="bt-stick-val">100%</span></div>
+      <input type="range" id="bt-stick" min="5" max="100" value="100" step="5" />
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Wind</span><span class="range-number" id="bt-wind-val">0%</span></div>
+      <input type="range" id="bt-wind" min="0" max="80" value="0" step="5" />
+      <select id="bt-wind-dir" style="margin-top:6px">
+        <option value="down">Blowing down ↓</option>
+        <option value="up">Blowing up ↑</option>
+        <option value="left">Blowing left ←</option>
+        <option value="right">Blowing right →</option>
+      </select>
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Speed</span><span class="range-number" id="bt-speed-val">7</span></div>
+      <input type="range" id="bt-speed" min="1" max="10" value="7" step="1" />
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Mode</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="toggle-row">
+          <span class="toggle-label">Show walkers</span>
+          <label class="toggle"><input type="checkbox" id="bt-toggle-walkers" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">One particle at a time</span>
+          <label class="toggle"><input type="checkbox" id="bt-toggle-step" /><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="bt-run">▶ Grow</button>
+      <button type="button" class="btn" id="bt-next" disabled>→ Next particle</button>
+      <button type="button" class="btn" id="bt-reset">↺ Reset</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Particles stuck</span><span class="stat-val" id="bt-stat-count">—</span></div>
+      <div class="stat-row"><span>Tip extensions</span><span class="stat-val" id="bt-stat-tips">—</span></div>
+      <div class="stat-row"><span>Rough dimension</span><span class="stat-val" id="bt-stat-dim">—</span></div>
+      <div class="stat-row"><span>Walkers lost</span><span class="stat-val" id="bt-stat-lost">—</span></div>
+      <div class="stat-row"><span>Status</span><span class="stat-val" id="bt-stat-status">Ready</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Legend</div>
+      <div class="legend-item"><span class="legend-dot" id="bt-dot-a"></span> <span id="bt-label-a">Oldest particles</span></div>
+      <div class="legend-item"><span class="legend-dot" id="bt-dot-b"></span> <span id="bt-label-b">Newest particles</span></div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Walker and its trail</div>
+      <div class="legend-item" style="color:var(--muted)">Tap the canvas to plant a seed</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap" id="bt-wrap">
+      <canvas id="bt-canvas"></canvas>
+    </div>
+    <div class="step-info" id="bt-step-info"></div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  canvas { width: auto; height: auto; display: block; max-width: 100%; cursor: crosshair; }
+  .legend-dot { border-radius: 2px; width: 12px; height: 12px; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+</style>
+
+<script>
+  import { getRandom, isThumbnailMode } from '../lib/seed';
+
+  const rand = getRandom();
+  const THUMB = isThumbnailMode();
+  const canvas = document.getElementById('bt-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const wrap = document.getElementById('bt-wrap')!;
+  const off = document.createElement('canvas');
+  const octx = off.getContext('2d')!;
+
+  const PX = 2;        // one lattice cell, in canvas pixels
+  const CAP = 24;      // distance map stops counting here
+  const WALKERS = 30;
+  const DX = [1, -1, 0, 0], DY = [0, 0, 1, -1];
+
+  // Skins decide colours and decoration only. Every random number that shapes
+  // the tree comes from `rand`; decoration (strikes, spores, speckle) uses
+  // Math.random, so switching skins can never change what grows.
+  type RGB = [number, number, number];
+  type Decor = 'none' | 'speckle' | 'frost' | 'storm' | 'fungus';
+  type Skin = { bg: string; a: RGB; b: RGB; glow: number; walker: string; decor: Decor };
+  const SKINS: Record<string, Skin> = {
+    coral:       { bg: '#f8fafc', a: [15, 118, 110],  b: [251, 113, 133], glow: 0, walker: 'rgba(100,116,139,0.6)',  decor: 'none' },
+    lichtenberg: { bg: '#05050c', a: [255, 255, 255], b: [124, 58, 237],  glow: 4, walker: 'rgba(167,139,250,0.5)',  decor: 'none' },
+    lightning:   { bg: '#080c1a', a: [100, 116, 139], b: [42, 54, 76],    glow: 0, walker: 'rgba(148,163,184,0.4)',  decor: 'storm' },
+    frost:       { bg: '#0c2340', a: [240, 249, 255], b: [125, 180, 240], glow: 2, walker: 'rgba(191,219,254,0.45)', decor: 'frost' },
+    fungus:      { bg: '#120d08', a: [232, 214, 170], b: [201, 118, 46],  glow: 3, walker: 'rgba(214,180,120,0.35)', decor: 'fungus' },
+    mineral:     { bg: '#e7d8b8', a: [43, 26, 14],    b: [150, 105, 60],  glow: 0, walker: 'rgba(87,62,35,0.5)',     decor: 'speckle' },
+  };
+  const WIND: Record<string, [number, number]> = { down: [0, 1], up: [0, -1], left: [-1, 0], right: [1, 0] };
+
+  let W = 0, H = 0;
+  let occ = new Int32Array(0);     // particle index per cell, -1 when empty
+  let dist = new Uint8Array(0);    // steps to the nearest particle, capped at CAP
+  let image = new ImageData(1, 1);
+  let xs: number[] = [], ys: number[] = [], parent: number[] = [], kids: number[] = [];
+  let seeds = 0, extraSeeds = 0;
+  let cx = 0, cy = 0, rmax = 0, topY = 0, ringR = 0;
+  let wrapX = false;
+  type Walker = { x: number; y: number; moves: number; trail: number[] };
+  let walkers: Walker[] = [];
+  let rr = 0;
+  let lost = 0, tipHits = 0, sideHits = 0;
+  let running = false, done = false;
+  let holdUntil = 0, pendingRespawn = false;
+  let speckle: HTMLCanvasElement | null = null;
+  let strike: { main: number[][]; forks: number[][][]; born: number } | null = null;
+  let nextStrike = 0;
+  let spores: { x: number; y: number; vx: number; vy: number; r: number }[] = [];
+
+  const skinSelect = document.getElementById('bt-skin') as HTMLSelectElement;
+  const seedSelect = document.getElementById('bt-seed') as HTMLSelectElement;
+  const colourSelect = document.getElementById('bt-colour') as HTMLSelectElement;
+  const stickInput = document.getElementById('bt-stick') as HTMLInputElement;
+  const windInput = document.getElementById('bt-wind') as HTMLInputElement;
+  const windDir = document.getElementById('bt-wind-dir') as HTMLSelectElement;
+  const speedInput = document.getElementById('bt-speed') as HTMLInputElement;
+  const toggleWalkers = document.getElementById('bt-toggle-walkers') as HTMLInputElement;
+  const toggleStep = document.getElementById('bt-toggle-step') as HTMLInputElement;
+  const btnRun = document.getElementById('bt-run') as HTMLButtonElement;
+  const btnNext = document.getElementById('bt-next') as HTMLButtonElement;
+  const stepInfo = document.getElementById('bt-step-info')!;
+
+  const skin = () => SKINS[skinSelect.value] ?? SKINS.coral;
+  const seedTotal = () => seeds + extraSeeds;
+  const grown = () => xs.length - seedTotal();
+
+  function cellAt(x: number, y: number) {
+    if (y < 0 || y >= H) return -1;
+    if (x < 0 || x >= W) {
+      if (!wrapX) return -1;
+      x = (x + W) % W;
+    }
+    return y * W + x;
+  }
+
+  function occupy(x: number, y: number, par: number) {
+    const i = xs.length, c = y * W + x;
+    xs.push(x); ys.push(y); parent.push(par); kids.push(0);
+    if (par >= 0) kids[par]++;
+    occ[c] = i;
+    dist[c] = 0;
+    // Incremental BFS: only cells that just got closer are revisited.
+    const q = [c];
+    for (let h = 0; h < q.length; h++) {
+      const cur = q[h], d = dist[cur] + 1;
+      if (d >= CAP) continue;
+      const qx = cur % W, qy = (cur - qx) / W;
+      for (let k = 0; k < 4; k++) {
+        const n = cellAt(qx + DX[k], qy + DY[k]);
+        if (n >= 0 && dist[n] > d) { dist[n] = d; q.push(n); }
+      }
+    }
+    rmax = Math.max(rmax, Math.hypot(x - cx, y - cy));
+    topY = Math.min(topY, y);
+  }
+
+  function strategy() {
+    const mode = seedSelect.value;
+    if (mode === 'line') return 'above';
+    if (mode === 'ring') return 'inside';
+    if (mode === 'point' && extraSeeds === 0) return 'circle';
+    return 'far';
+  }
+
+  function reset() {
+    W = Math.max(60, Math.floor(wrap.clientWidth / PX));
+    H = Math.floor(520 / PX);
+    canvas.width = W * PX;
+    canvas.height = H * PX;
+    off.width = W; off.height = H;
+    image = octx.createImageData(W, H);
+    occ = new Int32Array(W * H).fill(-1);
+    dist = new Uint8Array(W * H).fill(CAP);
+    xs = []; ys = []; parent = []; kids = [];
+    walkers = []; rr = 0;
+    lost = 0; tipHits = 0; sideHits = 0;
+    extraSeeds = 0; done = false; running = false; pendingRespawn = false;
+    strike = null;
+    cx = W >> 1; cy = H >> 1; rmax = 0; topY = H;
+
+    const mode = seedSelect.value;
+    wrapX = mode === 'line';
+    if (mode === 'point') occupy(cx, cy, -1);
+    else if (mode === 'line') for (let x = 0; x < W; x++) occupy(x, H - 1, -1);
+    else if (mode === 'ring') {
+      ringR = Math.floor(Math.min(W, H) * 0.46);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (Math.abs(Math.hypot(x - cx, y - cy) - ringR) < 0.8) occupy(x, y, -1);
+      }
+    } else if (mode === 'frame') {
+      for (let x = 0; x < W; x++) { occupy(x, 0, -1); occupy(x, H - 1, -1); }
+      for (let y = 1; y < H - 1; y++) { occupy(0, y, -1); occupy(W - 1, y, -1); }
+    } else {
+      const pts: number[][] = [];
+      for (let k = 0, guard = 0; k < 5 && guard < 500; guard++) {
+        const x = Math.floor(W * (0.12 + 0.76 * rand())), y = Math.floor(H * (0.12 + 0.76 * rand()));
+        if (pts.some(([px, py]) => Math.hypot(px - x, py - y) < Math.min(W, H) * 0.25)) continue;
+        pts.push([x, y]); occupy(x, y, -1); k++;
+      }
+    }
+    seeds = xs.length;
+    rmax = 0;
+
+    speckle = null;
+    spores = Array.from({ length: 40 }, () => ({
+      x: Math.random() * W * PX, y: Math.random() * H * PX,
+      vx: (Math.random() - 0.5) * 0.25, vy: -0.05 - Math.random() * 0.2, r: 0.6 + Math.random() * 1.6,
+    }));
+
+    btnNext.disabled = !toggleStep.checked;
+    stepInfo.textContent = '';
+    updateRunButton();
+    updateStats();
+  }
+
+  function newWalker(): Walker { return { x: 0, y: 0, moves: 0, trail: [] }; }
+
+  function spawn(w: Walker): boolean {
+    w.moves = 0; w.trail = [];
+    const s = strategy();
+    for (let t = 0; t < 300; t++) {
+      let x: number, y: number;
+      if (s === 'circle') {
+        const r = rmax + 6;
+        if (cx - r < 1 || cy - r < 1 || cx + r > W - 2 || cy + r > H - 2) return false;
+        const a = rand() * Math.PI * 2;
+        x = Math.round(cx + r * Math.cos(a));
+        y = Math.round(cy + r * Math.sin(a));
+      } else if (s === 'above') {
+        y = topY - 8;
+        if (y < 1) return false;
+        x = Math.floor(rand() * W);
+      } else {
+        // Anywhere well clear of the tree — inside the ring when there is one.
+        x = Math.floor(rand() * W);
+        y = Math.floor(rand() * H);
+        if (s === 'inside' && Math.hypot(x - cx, y - cy) > ringR - 2) continue;
+        if (dist[y * W + x] < 12) continue;
+      }
+      const c = y * W + x;
+      if (occ[c] >= 0 || dist[c] < 2) continue;
+      w.x = x; w.y = y;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * One move of one walker: stick, hop, or step. A walker being traced
+   * (`trail`) never hops, so the line it leaves is a genuine random walk.
+   */
+  function moveWalker(w: Walker, trail: boolean): 'moved' | 'stuck' | 'done' {
+    const c = w.y * W + w.x;
+    if (occ[c] >= 0) return spawn(w) ? 'moved' : 'done';
+    const d = dist[c];
+    if (d === 1 && rand() * 100 < Number(stickInput.value)) {
+      const touching: number[] = [];
+      for (let k = 0; k < 4; k++) {
+        const n = cellAt(w.x + DX[k], w.y + DY[k]);
+        if (n >= 0 && occ[n] >= 0) touching.push(occ[n]);
+      }
+      const par = touching[Math.floor(rand() * touching.length)];
+      if (parent[par] >= 0) { if (kids[par] === 0) tipHits++; else sideHits++; }
+      occupy(w.x, w.y, par);
+      return 'stuck';
+    }
+
+    const wind = Number(windInput.value) / 100;
+    const [wx, wy] = WIND[windDir.value] ?? WIND.down;
+    let nx: number, ny: number;
+    if (d >= 3 && !trail) {
+      // Nothing is within d-1 steps, so a hop to any cell d-2 away (Manhattan)
+      // can't skip past the tree. This is what makes a large tree affordable.
+      const k = d - 2;
+      let dx = 0, dy = 0;
+      for (let tries = 0; tries < 8; tries++) {
+        const t = Math.floor(rand() * 4 * k), seg = Math.floor(t / k), o = t % k;
+        dx = seg === 0 ? k - o : seg === 1 ? -o : seg === 2 ? o - k : o;
+        dy = seg === 0 ? o : seg === 1 ? k - o : seg === 2 ? -o : o - k;
+        if (rand() * (1 + wind) < 1 + wind * (dx * wx + dy * wy) / k) break;
+      }
+      nx = w.x + dx; ny = w.y + dy;
+    } else {
+      let dir = 0;
+      for (let tries = 0; tries < 8; tries++) {
+        dir = Math.floor(rand() * 4);
+        if (rand() * (1 + wind) < 1 + wind * (DX[dir] * wx + DY[dir] * wy)) break;
+      }
+      nx = w.x + DX[dir]; ny = w.y + DY[dir];
+    }
+    w.moves++;
+
+    const s = strategy();
+    if (wrapX) nx = ((nx % W) + W) % W;
+    if (nx < 0 || ny < 0 || nx >= W || ny >= H) {
+      if (s === 'circle' || s === 'above') { lost++; return spawn(w) ? 'moved' : 'done'; }
+      nx = Math.min(W - 1, Math.max(0, nx));
+      ny = Math.min(H - 1, Math.max(0, ny));
+    }
+    if ((s === 'circle' && Math.hypot(nx - cx, ny - cy) > rmax * 2 + 20) || (s === 'above' && ny < topY - 40)) {
+      lost++;
+      return spawn(w) ? 'moved' : 'done';
+    }
+    const nc = ny * W + nx;
+    if (occ[nc] >= 0) return 'moved';
+    w.x = nx; w.y = ny;
+    if (trail) {
+      w.trail.push(nc);
+      if (w.trail.length > 6000) w.trail.splice(0, 1000);
+    }
+    return 'moved';
+  }
+
+  function ensureWalkers(): boolean {
+    const want = toggleStep.checked ? 1 : WALKERS;
+    if (walkers.length === want) return true;
+    walkers = [];
+    pendingRespawn = false;
+    for (let k = 0; k < want; k++) {
+      const w = newWalker();
+      if (!spawn(w)) { finish(); return false; }
+      walkers.push(w);
+    }
+    return true;
+  }
+
+  function grow(budget: number) {
+    while (budget-- > 0) {
+      const w = walkers[rr];
+      rr = (rr + 1) % walkers.length;
+      const r = moveWalker(w, false);
+      if (r === 'done' || (r === 'stuck' && !spawn(w))) { finish(); return; }
+      if (xs.length >= W * H * 0.3) { finish(); return; }
+    }
+  }
+
+  function narrate(w: Walker) {
+    const i = xs.length - 1, p = parent[i];
+    const where = parent[p] < 0 ? 'landed straight on a seed'
+      : kids[p] === 1 ? 'extended the tip of a branch'
+      : 'started a new side branch';
+    stepInfo.textContent = `Particle ${grown()}: a random walk of ${w.moves.toLocaleString('en')} steps, then ${where}.`;
+  }
+
+  function stepParticle(movesPerFrame: number) {
+    const w = walkers[0];
+    const now = performance.now();
+    if (now < holdUntil) return;
+    if (pendingRespawn) {
+      pendingRespawn = false;
+      if (!spawn(w)) { finish(); return; }
+    }
+    for (let m = 0; m < movesPerFrame; m++) {
+      const r = moveWalker(w, true);
+      if (r === 'done') { finish(); return; }
+      if (r === 'stuck') {
+        narrate(w);
+        pendingRespawn = true;
+        holdUntil = now + 600;
+        return;
+      }
+    }
+  }
+
+  function nextParticle() {
+    if (done || !ensureWalkers()) return;
+    const w = walkers[0];
+    if (pendingRespawn) {
+      pendingRespawn = false;
+      if (!spawn(w)) { finish(); return; }
+    }
+    for (let m = 0; m < 5e6; m++) {
+      const r = moveWalker(w, true);
+      if (r === 'done') { finish(); return; }
+      if (r === 'stuck') { narrate(w); pendingRespawn = true; holdUntil = performance.now() + 600; break; }
+    }
+    updateStats();
+  }
+
+  function finish() {
+    done = true;
+    running = false;
+    updateRunButton();
+    updateStats();
+    stepInfo.textContent = `Grown: ${grown().toLocaleString('en')} particles, and no room left to launch walkers from.`;
+  }
+
+  function updateRunButton() {
+    btnRun.textContent = running ? '❚❚ Pause' : done ? '↺ Grow again' : '▶ Grow';
+  }
+
+  function updateStats() {
+    document.getElementById('bt-stick-val')!.textContent = `${stickInput.value}%`;
+    document.getElementById('bt-wind-val')!.textContent = `${windInput.value}%`;
+    document.getElementById('bt-speed-val')!.textContent = speedInput.value;
+    const n = grown();
+    document.getElementById('bt-stat-count')!.textContent = n ? n.toLocaleString('en') : '—';
+    const hits = tipHits + sideHits;
+    document.getElementById('bt-stat-tips')!.textContent = hits > 20 ? `${Math.round(100 * tipHits / hits)}%` : '—';
+    // Mass–radius: N ≈ R^D, so D ≈ ln N / ln R. Crude at this size, but it
+    // lands in the right neighbourhood and moves the right way.
+    document.getElementById('bt-stat-dim')!.textContent = strategy() === 'circle' && rmax > 12 && n > 50
+      ? (Math.log(n) / Math.log(rmax)).toFixed(2) : '—';
+    document.getElementById('bt-stat-lost')!.textContent = lost ? lost.toLocaleString('en') : '—';
+    document.getElementById('bt-stat-status')!.textContent = done ? 'Grown' : running ? 'Growing' : n ? 'Paused' : 'Ready';
+  }
+
+  const rgb = (c: RGB) => `rgb(${c[0]} ${c[1]} ${c[2]})`;
+
+  function weights() {
+    const w = new Float32Array(xs.length).fill(1);
+    for (let i = xs.length - 1; i >= 0; i--) if (parent[i] >= 0) w[parent[i]] += w[i];
+    return w;
+  }
+
+  /** 0 → colour a, 1 → colour b, per the "Colour by" choice. */
+  function shade(): Float32Array {
+    const n = xs.length, t = new Float32Array(n);
+    const mode = colourSelect.value;
+    if (mode === 'age') {
+      const span = Math.max(1, n - seeds);
+      for (let i = seeds; i < n; i++) t[i] = (i - seeds) / span;
+    } else if (mode === 'weight') {
+      const w = weights();
+      let max = 1;
+      for (let i = 0; i < n; i++) if (parent[i] >= 0 && w[i] > max) max = w[i];
+      const lm = Math.log(max) || 1;
+      for (let i = 0; i < n; i++) t[i] = parent[i] < 0 ? 0 : 1 - Math.min(1, Math.log(w[i]) / lm);
+    }
+    return t;
+  }
+
+  function paintBackground(s: Skin) {
+    const cw = canvas.width, ch = canvas.height;
+    if (s.decor === 'frost') {
+      const g = ctx.createLinearGradient(0, 0, cw * 0.3, ch);
+      g.addColorStop(0, '#0a1c33'); g.addColorStop(1, '#1d4a74');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, cw, ch);
+      const r = ctx.createRadialGradient(cw * 0.3, ch * 0.25, 0, cw * 0.3, ch * 0.25, cw * 0.7);
+      r.addColorStop(0, 'rgba(255,255,255,0.07)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = r;
+      ctx.fillRect(0, 0, cw, ch);
+      return;
+    }
+    if (s.decor === 'fungus') {
+      const r = ctx.createRadialGradient(cw / 2, ch / 2, 0, cw / 2, ch / 2, Math.max(cw, ch) * 0.7);
+      r.addColorStop(0, '#20170e'); r.addColorStop(1, '#070504');
+      ctx.fillStyle = r;
+      ctx.fillRect(0, 0, cw, ch);
+      return;
+    }
+    ctx.fillStyle = s.bg;
+    ctx.fillRect(0, 0, cw, ch);
+    if (s.decor === 'speckle') {
+      if (!speckle || speckle.width !== cw) {
+        speckle = document.createElement('canvas');
+        speckle.width = cw; speckle.height = ch;
+        const sc = speckle.getContext('2d')!;
+        for (let k = 0; k < cw * ch / 40; k++) {
+          sc.fillStyle = Math.random() < 0.5 ? 'rgba(120,88,50,0.10)' : 'rgba(255,250,235,0.18)';
+          sc.fillRect(Math.random() * cw, Math.random() * ch, 1 + Math.random() * 2, 1 + Math.random() * 2);
+        }
+      }
+      ctx.drawImage(speckle, 0, 0);
+    }
+  }
+
+  function paintTreePixels(s: Skin, t: Float32Array) {
+    const data = image.data;
+    data.fill(0);
+    for (let i = 0; i < xs.length; i++) {
+      const o = (ys[i] * W + xs[i]) * 4, k = t[i];
+      data[o] = s.a[0] + (s.b[0] - s.a[0]) * k;
+      data[o + 1] = s.a[1] + (s.b[1] - s.a[1]) * k;
+      data[o + 2] = s.a[2] + (s.b[2] - s.a[2]) * k;
+      data[o + 3] = 255;
+    }
+    octx.putImageData(image, 0, 0);
+  }
+
+  /** Fungal skin: hyphae thicken with the weight they carry, like real mycelium. */
+  function paintHyphae(s: Skin, t: Float32Array) {
+    const w = weights();
+    let max = 1;
+    for (let i = 0; i < xs.length; i++) if (parent[i] >= 0 && w[i] > max) max = w[i];
+    const lm = Math.log(max) || 1;
+    const buckets = new Map<number, number[]>();
+    for (let i = 0; i < xs.length; i++) {
+      const p = parent[i];
+      if (p < 0 || Math.abs(xs[p] - xs[i]) > 1) continue;
+      const thick = Math.min(4, Math.floor(Math.log(w[i]) / lm * 5));
+      const tone = Math.min(4, Math.floor(t[i] * 5));
+      const key = thick * 5 + tone;
+      let list = buckets.get(key);
+      if (!list) buckets.set(key, list = []);
+      list.push(i);
+    }
+    ctx.lineCap = 'round';
+    for (const [key, list] of buckets) {
+      const thick = Math.floor(key / 5), k = (key % 5 + 0.5) / 5;
+      ctx.strokeStyle = rgb([0, 1, 2].map((j) => Math.round(s.a[j] + (s.b[j] - s.a[j]) * k)) as RGB);
+      ctx.lineWidth = PX * (0.8 + thick * 0.9);
+      ctx.beginPath();
+      for (const i of list) {
+        const p = parent[i];
+        ctx.moveTo(xs[i] * PX + PX / 2, ys[i] * PX + PX / 2);
+        ctx.lineTo(xs[p] * PX + PX / 2, ys[p] * PX + PX / 2);
+      }
+      ctx.stroke();
+    }
+  }
+
+  function buildStrike(born: number) {
+    const n = xs.length;
+    const depth = new Int32Array(n);
+    const children: number[][] = Array.from({ length: n }, () => []);
+    for (let i = 0; i < n; i++) {
+      if (parent[i] < 0) continue;
+      depth[i] = depth[parent[i]] + 1;
+      children[parent[i]].push(i);
+    }
+    const tips = [];
+    for (let i = seeds; i < n; i++) if (kids[i] === 0 && parent[i] >= 0) tips.push(i);
+    if (!tips.length) return null;
+    tips.sort((a, b) => depth[b] - depth[a]);
+    let i = tips[Math.floor(Math.random() * Math.min(12, tips.length))];
+    const chain: number[] = [];
+    while (i >= 0) { chain.push(i); i = parent[i]; }
+    const onChain = new Set(chain);
+    const toPts = (list: number[]) => list.map((j) => [xs[j] * PX + PX / 2, ys[j] * PX + PX / 2]);
+    const forks: number[][][] = [];
+    for (const node of chain) {
+      for (const child of children[node]) {
+        if (onChain.has(child) || Math.random() > 0.35) continue;
+        const fork = [node];
+        let cur = child;
+        for (let step = 0; step < 14 && cur !== undefined; step++) {
+          fork.push(cur);
+          cur = children[cur][0];
+        }
+        forks.push(toPts(fork));
+      }
+    }
+    return { main: toPts(chain), forks, born };
+  }
+
+  function strokePts(pts: number[][]) {
+    ctx.beginPath();
+    pts.forEach(([x, y], k) => {
+      if (k && Math.abs(x - pts[k - 1][0]) > PX * 2) ctx.moveTo(x, y);
+      else if (k) ctx.lineTo(x, y);
+      else ctx.moveTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  function paintStorm(now: number) {
+    if (!THUMB && grown() > 60 && now >= nextStrike) {
+      strike = buildStrike(now);
+      nextStrike = now + 900 + Math.random() * 2600;
+    }
+    if (!strike) return;
+    const age = now - strike.born;
+    const alpha = age < 70 ? 1 : Math.max(0, 1 - (age - 70) / 480);
+    if (alpha <= 0) { strike = null; return; }
+    ctx.save();
+    ctx.fillStyle = `rgba(191,219,254,${0.14 * alpha})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.shadowColor = 'rgba(147,197,253,1)';
+    ctx.shadowBlur = 14;
+    ctx.strokeStyle = `rgba(191,219,254,${0.55 * alpha})`;
+    ctx.lineWidth = 1.2;
+    strike.forks.forEach(strokePts);
+    ctx.strokeStyle = `rgba(147,197,253,${0.4 * alpha})`;
+    ctx.lineWidth = 6;
+    strokePts(strike.main);
+    ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+    ctx.lineWidth = 2.2;
+    strokePts(strike.main);
+    ctx.restore();
+  }
+
+  function paintSpores() {
+    ctx.save();
+    for (const p of spores) {
+      if (!THUMB) {
+        p.x += p.vx; p.y += p.vy;
+        if (p.y < -4) { p.y = canvas.height + 4; p.x = Math.random() * canvas.width; }
+      }
+      ctx.fillStyle = 'rgba(232,200,140,0.22)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+    }
+    const v = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, canvas.height * 0.3, canvas.width / 2, canvas.height / 2, canvas.width * 0.75);
+    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+  }
+
+  function render() {
+    const s = skin(), now = performance.now();
+    wrap.style.background = s.bg;
+    const weightMode = colourSelect.value === 'weight';
+    document.getElementById('bt-dot-a')!.style.background = rgb(s.a);
+    document.getElementById('bt-dot-b')!.style.background = rgb(s.b);
+    document.getElementById('bt-label-a')!.textContent = weightMode ? 'Heavy trunk' : colourSelect.value === 'flat' ? 'Tree' : 'Oldest particles';
+    document.getElementById('bt-label-b')!.textContent = weightMode ? 'Light twigs' : colourSelect.value === 'flat' ? '—' : 'Newest particles';
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    paintBackground(s);
+    const t = shade();
+
+    if (s.decor === 'fungus') {
+      ctx.save();
+      ctx.filter = `blur(${s.glow}px)`;
+      paintHyphae(s, t);
+      ctx.restore();
+      paintHyphae(s, t);
+    } else {
+      paintTreePixels(s, t);
+      if (s.glow) {
+        ctx.save();
+        ctx.filter = `blur(${s.glow}px)`;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.drawImage(off, 0, 0, W * PX, H * PX);
+        ctx.restore();
+      }
+      ctx.drawImage(off, 0, 0, W * PX, H * PX);
+    }
+
+    if (s.decor === 'storm') paintStorm(now);
+    if (s.decor === 'fungus') paintSpores();
+    if (s.decor === 'frost') {
+      ctx.strokeStyle = 'rgba(226,232,240,0.35)';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(1.5, 1.5, canvas.width - 3, canvas.height - 3);
+    }
+
+    if (toggleWalkers.checked && !done) {
+      ctx.fillStyle = toggleStep.checked ? '#f59e0b' : s.walker;
+      for (const w of walkers) ctx.fillRect(w.x * PX - 1, w.y * PX - 1, PX + 2, PX + 2);
+    }
+    if (toggleStep.checked && walkers[0]?.trail.length) {
+      const trail = walkers[0].trail;
+      ctx.strokeStyle = 'rgba(245,158,11,0.55)';
+      ctx.lineWidth = 1;
+      strokePts(trail.map((c) => [(c % W) * PX + PX / 2, Math.floor(c / W) * PX + PX / 2]));
+    }
+    if (toggleStep.checked && walkers[0] && !done) {
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.arc(walkers[0].x * PX + PX / 2, walkers[0].y * PX + PX / 2, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function frame() {
+    if (running && !done) {
+      if (!ensureWalkers()) { /* finish() already ran */ }
+      else if (toggleStep.checked) stepParticle(2 ** Number(speedInput.value) / 8);
+      else grow(15 * 2 ** (Number(speedInput.value) - 1));
+      updateStats();
+    }
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  btnRun.addEventListener('click', () => {
+    if (done) reset();
+    running = !running;
+    updateRunButton();
+    updateStats();
+  });
+  btnNext.addEventListener('click', nextParticle);
+  document.getElementById('bt-reset')!.addEventListener('click', reset);
+  seedSelect.addEventListener('change', reset);
+  toggleStep.addEventListener('change', () => {
+    walkers = [];
+    btnNext.disabled = !toggleStep.checked;
+    if (!toggleStep.checked) stepInfo.textContent = '';
+  });
+  [stickInput, windInput, speedInput].forEach((el) => el.addEventListener('input', updateStats));
+
+  canvas.addEventListener('click', (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.floor((ev.clientX - rect.left) / rect.width * W);
+    const y = Math.floor((ev.clientY - rect.top) / rect.height * H);
+    if (x < 0 || y < 0 || x >= W || y >= H || occ[y * W + x] >= 0) return;
+    occupy(x, y, -1);
+    extraSeeds++;
+    done = false;
+    updateRunButton();
+    updateStats();
+    stepInfo.textContent = 'Seed planted. Walkers now launch from anywhere far from the tree.';
+  });
+
+  // The rAF loop repaints every frame, so a resize can never leave the canvas
+  // blank. A grown tree is kept (the canvas scales down via max-width); only
+  // an untouched grid is rebuilt to the new width, which also covers the
+  // resize that fires right after first paint.
+  window.addEventListener('resize', () => {
+    if (!running && grown() === 0 && extraSeeds === 0) reset();
+  });
+
+  const params = new URLSearchParams(location.search);
+  for (const [key, select] of [['skin', skinSelect], ['seedShape', seedSelect], ['colour', colourSelect]] as const) {
+    const v = params.get(key);
+    if (v && [...select.options].some((o) => o.value === v)) select.value = v;
+  }
+
+  reset();
+
+  if (THUMB) {
+    toggleWalkers.checked = false;
+    if (ensureWalkers()) {
+      for (let guard = 0; guard < 400 && !done; guard++) grow(100000);
+    }
+    if (skinSelect.value === 'lightning') strike = buildStrike(Infinity);
+  }
+
+  requestAnimationFrame(frame);
+</script>
