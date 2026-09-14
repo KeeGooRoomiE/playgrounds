@@ -6,6 +6,14 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.9.0] — 2026-09-15
+
+### Added
+- **Sandbox** playground — a falling-sand cellular automaton you pour into and erase from (mouse buttons, or a pour/erase switch on touch), with per-grain friction that raises the angle of repose, Perlin-noise terrain generation (normalised, cut above 0.75), and five skins: Desert, Sand bottle, Gradient, Light sand and What moves. Links ahead to a Game of Life page at `../game-of-life/`, which doesn't exist yet.
+
+### Fixed
+- `capture-thumbnail.mjs` removes Astro's dev toolbar before the screenshot. Captured against `npm run dev`, the toolbar floats over the bottom of the page and landed in the Sandbox thumbnail; the existing thumbnails were re-captured and came out byte-identical, so none of them had it.
+
 ## [0.8.0] — 2026-09-15
 
 ### Added

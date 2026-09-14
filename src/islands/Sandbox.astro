@@ -1,0 +1,395 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Skin</div>
+      <select id="sb-skin">
+        <option value="desert">Desert</option>
+        <option value="bottle">Sand bottle</option>
+        <option value="gradient">Gradient</option>
+        <option value="light">Light sand</option>
+        <option value="moves">What moves</option>
+      </select>
+    </div>
+
+    <div>
+      <div class="ctrl-label">Drag or tap to</div>
+      <select id="sb-tool">
+        <option value="pour">Pour sand</option>
+        <option value="erase">Erase</option>
+      </select>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">With a mouse, the right button always erases.</div>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="range-value"><span class="range-label">Brush</span><span class="range-number" id="sb-brush-val">5</span></div>
+      <input type="range" id="sb-brush" min="1" max="12" value="5" step="1" />
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Friction</span><span class="range-number" id="sb-friction-val">0%</span></div>
+      <input type="range" id="sb-friction" min="0" max="100" value="0" step="5" />
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="sb-generate">🎲 Generate from noise</button>
+      <button type="button" class="btn" id="sb-clear">✕ Clear</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Grains</span><span class="stat-val" id="sb-stat-grains">—</span></div>
+      <div class="stat-row"><span>Moving now</span><span class="stat-val" id="sb-stat-moving">—</span></div>
+      <div class="stat-row"><span>At rest</span><span class="stat-val" id="sb-stat-rest">—</span></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap" id="sb-wrap">
+      <canvas id="sb-canvas"></canvas>
+    </div>
+    <div class="step-info" id="sb-step-info">Drag on the canvas to pour sand.</div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  /* touch-action: none so dragging on the canvas pours instead of scrolling. */
+  canvas { width: auto; height: auto; display: block; max-width: 100%; cursor: crosshair; touch-action: none; image-rendering: pixelated; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+</style>
+
+<script>
+  import { getRandom, isThumbnailMode } from '../lib/seed';
+
+  const rand = getRandom();
+  const THUMB = isThumbnailMode();
+  const canvas = document.getElementById('sb-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const wrap = document.getElementById('sb-wrap')!;
+  const off = document.createElement('canvas');
+  const octx = off.getContext('2d')!;
+
+  const PX = 3;            // canvas pixels per grain
+  const H = Math.floor(520 / PX);
+  const SUBSTEPS = 2;      // rule applications per animation frame
+  const THRESHOLD = 0.75;  // normalised noise above this becomes sand
+  let threshold = THRESHOLD;
+
+  let W = 0;
+  // One byte per cell each: occupancy, a random shade, the pour-time hue, how
+  // far the grain must be able to drop before it will slide, and how recently
+  // it moved. Everything but `grid` travels with the grain.
+  let grid = new Uint8Array(0), jit = new Uint8Array(0), hue = new Uint8Array(0);
+  let grip = new Uint8Array(0), act = new Uint8Array(0);
+  let image = new ImageData(1, 1);
+  let tick = 0, moved = 0, pourHue = 0;
+
+  const skinSelect = document.getElementById('sb-skin') as HTMLSelectElement;
+  const toolSelect = document.getElementById('sb-tool') as HTMLSelectElement;
+  const brushInput = document.getElementById('sb-brush') as HTMLInputElement;
+  const frictionInput = document.getElementById('sb-friction') as HTMLInputElement;
+  const stepInfo = document.getElementById('sb-step-info')!;
+
+  // ---- Grid ---------------------------------------------------------------
+
+  /** Resize keeping existing sand; columns cut off on the right are lost. */
+  function allocate(width: number) {
+    const w = Math.max(40, width);
+    const next = [grid, jit, hue, grip, act].map(() => new Uint8Array(w * H));
+    const keep = Math.min(W, w);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < keep; x++) {
+        const from = y * W + x, to = y * w + x;
+        next[0][to] = grid[from]; next[1][to] = jit[from]; next[2][to] = hue[from];
+        next[3][to] = grip[from]; next[4][to] = act[from];
+      }
+    }
+    [grid, jit, hue, grip, act] = next;
+    W = w;
+    canvas.width = W * PX;
+    canvas.height = H * PX;
+    off.width = W; off.height = H;
+    image = octx.createImageData(W, H);
+    backdrop = null;
+  }
+
+  function rollGrip() {
+    const r = Number(frictionInput.value) / 50;
+    return Math.min(2, Math.floor(r) + (rand() < r - Math.floor(r) ? 1 : 0));
+  }
+
+  function place(i: number, shade: number) {
+    grid[i] = 1;
+    jit[i] = Math.floor(rand() * 256);
+    hue[i] = shade & 255;
+    grip[i] = rollGrip();
+    act[i] = 255;
+  }
+
+  function move(from: number, to: number) {
+    grid[to] = 1; jit[to] = jit[from]; hue[to] = hue[from]; grip[to] = grip[from]; act[to] = 255;
+    grid[from] = 0;
+    moved++;
+  }
+
+  /** Is column cx empty for `need` cells below row y? */
+  function clearBelow(cx: number, y: number, need: number) {
+    for (let d = 1; d <= need; d++) {
+      if (y + d >= H || grid[(y + d) * W + cx]) return false;
+    }
+    return true;
+  }
+
+  // ---- The rule ------------------------------------------------------------
+
+  function step() {
+    tick++;
+    const leftToRight = (tick & 1) === 0;
+    // Bottom-up, so a grain that falls lands in a row already processed and
+    // can't fall again in the same pass. The row direction alternates so that
+    // neighbours competing for the same gap don't always resolve the same way.
+    for (let y = H - 2; y >= 0; y--) {
+      const row = y * W;
+      for (let k = 0; k < W; k++) {
+        const x = leftToRight ? k : W - 1 - k;
+        const i = row + x;
+        if (!grid[i]) continue;
+        const below = i + W;
+        if (!grid[below]) { move(i, below); continue; }
+        const need = 1 + grip[i];
+        const canLeft = x > 0 && clearBelow(x - 1, y, need);
+        const canRight = x < W - 1 && clearBelow(x + 1, y, need);
+        if (!canLeft && !canRight) continue;
+        const goLeft = canLeft && canRight ? rand() < 0.5 : canLeft;
+        move(i, below + (goLeft ? -1 : 1));
+      }
+    }
+  }
+
+  // ---- Noise ---------------------------------------------------------------
+
+  function perlin() {
+    const perm = Array.from({ length: 256 }, (_, i) => i);
+    for (let k = 255; k > 0; k--) {
+      const m = Math.floor(rand() * (k + 1));
+      [perm[k], perm[m]] = [perm[m], perm[k]];
+    }
+    const p = new Uint8Array(512);
+    for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+    const fade = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
+    const grad = (h: number, x: number, y: number) => ((h & 1) ? -x : x) + ((h & 2) ? -y : y);
+    return (x: number, y: number) => {
+      const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+      const xf = x - Math.floor(x), yf = y - Math.floor(y);
+      const u = fade(xf), v = fade(yf);
+      const aa = p[p[X] + Y], ab = p[p[X] + Y + 1], ba = p[p[X + 1] + Y], bb = p[p[X + 1] + Y + 1];
+      const top = grad(aa, xf, yf) + u * (grad(ba, xf - 1, yf) - grad(aa, xf, yf));
+      const bottom = grad(ab, xf, yf - 1) + u * (grad(bb, xf - 1, yf - 1) - grad(ab, xf, yf - 1));
+      return top + v * (bottom - top);
+    };
+  }
+
+  function generate() {
+    clear();
+    const noise = perlin();
+    const field = new Float32Array(W * H);
+    let lo = Infinity, hi = -Infinity;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const v = noise(x / 28, y / 28) + 0.5 * noise(x / 14 + 31.7, y / 14 + 17.3);
+        field[y * W + x] = v;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+    }
+    // Raw Perlin output isn't in [0, 1], so a fixed threshold only means
+    // something after normalising to this field's own range.
+    const span = hi - lo || 1;
+    for (let i = 0; i < W * H; i++) {
+      if ((field[i] - lo) / span > threshold) place(i, Math.floor(i / W / H * BANDS.length));
+    }
+    pourHue = 0;
+    stepInfo.textContent = `Perlin noise, normalised: every cell above ${threshold} became sand — now watch it fall.`;
+  }
+
+  function clear() {
+    grid.fill(0); act.fill(0);
+    stepInfo.textContent = 'Cleared. Drag on the canvas to pour sand.';
+  }
+
+  // ---- Brush ---------------------------------------------------------------
+
+  let drawing: 'pour' | 'erase' | null = null;
+  let pointer = { x: 0, y: 0 }, lastPointer = { x: 0, y: 0 };
+
+  function stamp(cx: number, cy: number) {
+    const r = Number(brushInput.value);
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const x = cx + dx, y = cy + dy;
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        const i = y * W + x;
+        if (drawing === 'erase') grid[i] = 0;
+        else if (!grid[i] && rand() < 0.3) place(i, Math.floor(pourHue));
+      }
+    }
+  }
+
+  function applyBrush() {
+    if (!drawing) return;
+    // Stamp along the segment since the last frame so fast drags stay solid.
+    const dist = Math.hypot(pointer.x - lastPointer.x, pointer.y - lastPointer.y);
+    const steps = Math.max(1, Math.ceil(dist / Math.max(1, Number(brushInput.value) / 2)));
+    for (let k = 1; k <= steps; k++) {
+      const t = k / steps;
+      stamp(Math.round(lastPointer.x + (pointer.x - lastPointer.x) * t), Math.round(lastPointer.y + (pointer.y - lastPointer.y) * t));
+    }
+    lastPointer = { ...pointer };
+    if (drawing === 'pour') pourHue += 1 / 90;
+  }
+
+  function toCell(ev: PointerEvent) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: Math.floor((ev.clientX - rect.left) / rect.width * W),
+      y: Math.floor((ev.clientY - rect.top) / rect.height * H),
+    };
+  }
+
+  canvas.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    canvas.setPointerCapture(ev.pointerId);
+    drawing = ev.button === 2 ? 'erase' : toolSelect.value as 'pour' | 'erase';
+    pointer = toCell(ev);
+    lastPointer = { ...pointer };
+  });
+  canvas.addEventListener('pointermove', (ev) => { if (drawing) pointer = toCell(ev); });
+  const stop = () => { drawing = null; };
+  canvas.addEventListener('pointerup', stop);
+  canvas.addEventListener('pointercancel', stop);
+  canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
+
+  // ---- Skins ---------------------------------------------------------------
+  // Colour only. Grains carry their shade and pour hue whatever skin is on, so
+  // switching never changes the sand, only how it's painted.
+
+  type Skin = { bg: (g: CanvasRenderingContext2D, w: number, h: number) => void; frame: string };
+  const flat = (colour: string) => (g: CanvasRenderingContext2D, w: number, h: number) => { g.fillStyle = colour; g.fillRect(0, 0, w, h); };
+  const vertical = (top: string, bottom: string) => (g: CanvasRenderingContext2D, w: number, h: number) => {
+    const grd = g.createLinearGradient(0, 0, 0, h);
+    grd.addColorStop(0, top); grd.addColorStop(1, bottom);
+    g.fillStyle = grd; g.fillRect(0, 0, w, h);
+  };
+  const SKINS: Record<string, Skin> = {
+    desert:   { bg: vertical('#9fd3f0', '#fdf2d6'), frame: '#fdf2d6' },
+    bottle:   { bg: flat('#f5f5f4'), frame: '#f5f5f4' },
+    gradient: { bg: flat('#111827'), frame: '#111827' },
+    light:    { bg: flat('#f8fafc'), frame: '#f8fafc' },
+    moves:    { bg: flat('#020617'), frame: '#020617' },
+  };
+
+  const DESERT = Array.from({ length: 256 }, (_, j) => {
+    const d = (j / 255 - 0.5) * 44;
+    return [216 + d, 176 + d * 0.9, 118 + d * 0.7].map((c) => Math.max(0, Math.min(255, Math.round(c))));
+  });
+  // Sand-art colours in fixed bands: pouring steps to the next colour every
+  // ~1.5 seconds, so layers come out distinct instead of a smooth rainbow.
+  const BANDS: [number, number, number][] = [
+    [196, 98, 62], [240, 226, 196], [42, 157, 143], [233, 184, 64],
+    [124, 76, 130], [110, 172, 218], [231, 111, 81], [120, 140, 70],
+  ];
+  const BOTTLE = Array.from({ length: 256 }, (_, h) => BANDS[h % BANDS.length]);
+
+  let backdrop: HTMLCanvasElement | null = null;
+  let backdropSkin = '';
+
+  function render() {
+    const name = skinSelect.value, skin = SKINS[name] ?? SKINS.desert;
+    wrap.style.background = skin.frame;
+    if (!backdrop || backdropSkin !== name) {
+      backdrop = document.createElement('canvas');
+      backdrop.width = canvas.width; backdrop.height = canvas.height;
+      skin.bg(backdrop.getContext('2d')!, backdrop.width, backdrop.height);
+      backdropSkin = name;
+    }
+
+    const data = image.data;
+    data.fill(0);
+    let grains = 0;
+    for (let y = 0; y < H; y++) {
+      const t = y / (H - 1);
+      const gr: [number, number, number] = [253 - 60 * t, 224 - 160 * t, 71 - 60 * t];
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (!grid[i]) continue;
+        grains++;
+        let r: number, g: number, b: number;
+        if (name === 'bottle') [r, g, b] = BOTTLE[hue[i]];
+        else if (name === 'gradient') [r, g, b] = gr;
+        else if (name === 'light') { r = 30; g = 41; b = 59; }
+        else if (name === 'moves') {
+          const k = act[i] / 255;
+          r = 51 + (250 - 51) * k; g = 65 + (204 - 65) * k; b = 85 + (21 - 85) * k;
+        } else [r, g, b] = DESERT[jit[i]];
+        const o = i * 4;
+        data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
+        if (act[i]) act[i] = act[i] > 18 ? act[i] - 18 : 0;
+      }
+    }
+    octx.putImageData(image, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(backdrop, 0, 0);
+    ctx.drawImage(off, 0, 0, W * PX, H * PX);
+
+    document.getElementById('sb-stat-grains')!.textContent = grains ? grains.toLocaleString('en') : '—';
+    document.getElementById('sb-stat-moving')!.textContent = grains ? Math.round(moved / SUBSTEPS).toLocaleString('en') : '—';
+    document.getElementById('sb-stat-rest')!.textContent = grains ? `${Math.max(0, Math.round(100 - 100 * moved / SUBSTEPS / grains))}%` : '—';
+  }
+
+  function frame() {
+    applyBrush();
+    moved = 0;
+    // A thumbnail is a still: it steps a fixed number of frames up front.
+    if (!THUMB) for (let k = 0; k < SUBSTEPS; k++) step();
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  // ---- Wiring --------------------------------------------------------------
+
+  const updateLabels = () => {
+    document.getElementById('sb-brush-val')!.textContent = brushInput.value;
+    document.getElementById('sb-friction-val')!.textContent = `${frictionInput.value}%`;
+  };
+  brushInput.addEventListener('input', updateLabels);
+  frictionInput.addEventListener('input', updateLabels);
+  // Re-roll every grain's grip, so lowering friction makes standing piles slump.
+  frictionInput.addEventListener('change', () => {
+    for (let i = 0; i < grid.length; i++) if (grid[i]) grip[i] = rollGrip();
+  });
+  document.getElementById('sb-generate')!.addEventListener('click', generate);
+  document.getElementById('sb-clear')!.addEventListener('click', clear);
+
+  // The rAF loop repaints every frame; resize only has to reallocate the grid,
+  // which keeps the sand that still fits.
+  window.addEventListener('resize', () => {
+    const w = Math.floor(wrap.clientWidth / PX);
+    if (w !== W) allocate(w);
+  });
+
+  const params = new URLSearchParams(location.search);
+  const urlSkin = params.get('skin');
+  if (urlSkin && SKINS[urlSkin]) skinSelect.value = urlSkin;
+  const urlThreshold = Number(params.get('threshold'));
+  if (urlThreshold > 0 && urlThreshold < 1) threshold = urlThreshold;
+
+  allocate(Math.floor(wrap.clientWidth / PX));
+  generate();
+
+  if (THUMB) {
+    const frames = Number(params.get('frames')) || 0;
+    for (let k = 0; k < frames * SUBSTEPS; k++) step();
+  }
+
+  updateLabels();
+  requestAnimationFrame(frame);
+</script>

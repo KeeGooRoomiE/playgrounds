@@ -81,6 +81,10 @@ async function run() {
     const url = `${BASE_URL}/${slug}/?${params.toString()}`;
     await page.goto(url, { waitUntil: 'networkidle' });
     await page.waitForTimeout(400);
+    // Captured against `npm run dev`, Astro's dev toolbar floats over the
+    // bottom of the page and lands in the screenshot. `astro preview` (CI)
+    // has no toolbar, so this is a no-op there.
+    await page.evaluate(() => document.querySelector('astro-dev-toolbar')?.remove());
 
     const canvas = page.locator('canvas').first();
     const outPath = path.join(OUTPUT_DIR, `${slug}.png`);
