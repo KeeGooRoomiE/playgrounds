@@ -1,0 +1,695 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Algorithm</div>
+      <select id="so-alg">
+        <option value="insertion">Insertion sort</option>
+        <option value="merge">Merge sort</option>
+        <option value="quick">Quicksort</option>
+        <option value="heap">Heapsort</option>
+        <option value="radix">Radix sort</option>
+      </select>
+    </div>
+
+    <div>
+      <div class="ctrl-label">Deal</div>
+      <select id="so-deal">
+        <option value="shuffled">Shuffled</option>
+        <option value="nearly">Nearly sorted</option>
+        <option value="reversed">Reversed</option>
+        <option value="few">Few ranks — lots of ties</option>
+      </select>
+    </div>
+
+    <div>
+      <div class="ctrl-label">Sort by</div>
+      <select id="so-key">
+        <option value="rank">Rank only</option>
+        <option value="suit">Suit, then rank</option>
+      </select>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="range-value"><span class="range-label">Cards</span><span class="range-number" id="so-count-val">8</span></div>
+      <input type="range" id="so-count" min="4" max="20" value="8" step="1" />
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Speed</span><span class="range-number" id="so-speed-val">3</span></div>
+      <input type="range" id="so-speed" min="1" max="5" value="3" step="1" />
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Mode</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="toggle-row">
+          <span class="toggle-label">Animate moves</span>
+          <label class="toggle"><input type="checkbox" id="so-toggle-animate" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Show original order</span>
+          <label class="toggle"><input type="checkbox" id="so-toggle-order" checked /><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="so-run">▶ Sort</button>
+      <button type="button" class="btn" id="so-step">→ Next step</button>
+      <button type="button" class="btn" id="so-deal-btn">🎲 Deal a new hand</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Comparisons</span><span class="stat-val" id="so-stat-cmp">—</span></div>
+      <div class="stat-row"><span>Moves</span><span class="stat-val" id="so-stat-moves">—</span></div>
+      <div class="stat-row"><span>Equal cards</span><span class="stat-val" id="so-stat-stable">—</span></div>
+      <div class="stat-row"><span>Status</span><span class="stat-val" id="so-stat-status">Ready</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Legend</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Being compared</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#38bdf8"></span> Card being placed</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#a78bfa"></span> Pivot / heap root</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#4ade80"></span> In its final place</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f87171"></span> Equal cards that swapped order</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap" id="so-wrap">
+      <canvas id="so-canvas"></canvas>
+    </div>
+    <div class="step-info" id="so-step-info"></div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  canvas { width: auto; height: auto; display: block; max-width: 100%; image-rendering: pixelated; }
+  .legend-dot { border-radius: 2px; width: 12px; height: 12px; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+</style>
+
+<script>
+  import { getRandom, isThumbnailMode } from '../lib/seed';
+
+  const rand = getRandom();
+  const THUMB = isThumbnailMode();
+  const canvas = document.getElementById('so-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const wrap = document.getElementById('so-wrap')!;
+  const HEIGHT = 520;
+
+  // ---- Pixel art --------------------------------------------------------
+  // Every glyph is a string bitmap drawn one art-pixel at a time, scaled by an
+  // integer factor. No sprites, no fonts. Pips are never drawn upside down: at
+  // this resolution an inverted heart reads as a spade.
+
+  const CW = 38, CH = 52;
+  const INK = '#1f1a2e', PAPER = '#f3ead7', RED = '#d23c3c', BLACK = '#26324a';
+
+  const FONT: Record<string, string[]> = {
+    A: ['.X.', 'X.X', 'XXX', 'X.X', 'X.X'],
+    0: ['XXX', 'X.X', 'X.X', 'X.X', 'XXX'],
+    1: ['.X.', 'XX.', '.X.', '.X.', 'XXX'],
+    2: ['XX.', '..X', '.X.', 'X..', 'XXX'],
+    3: ['XX.', '..X', '.X.', '..X', 'XX.'],
+    4: ['X.X', 'X.X', 'XXX', '..X', '..X'],
+    5: ['XXX', 'X..', 'XX.', '..X', 'XX.'],
+    6: ['.XX', 'X..', 'XXX', 'X.X', 'XXX'],
+    7: ['XXX', '..X', '.X.', '.X.', '.X.'],
+    8: ['XXX', 'X.X', 'XXX', 'X.X', 'XXX'],
+    9: ['XXX', 'X.X', 'XXX', '..X', 'XX.'],
+  };
+
+  // Bridge order: clubs < diamonds < hearts < spades.
+  const SUITS = [
+    { sym: '♣', red: false,
+      small: ['..X..', '.XXX.', 'XXXXX', 'X.X.X', '..X..'],
+      pip: ['..XXX..', '..XXX..', 'XXXXXXX', 'XXXXXXX', 'XX.X.XX', '...X...', '..XXX..'] },
+    { sym: '♦', red: true,
+      small: ['..X..', '.XXX.', 'XXXXX', '.XXX.', '..X..'],
+      pip: ['...X...', '..XXX..', '.XXXXX.', 'XXXXXXX', '.XXXXX.', '..XXX..', '...X...'] },
+    { sym: '♥', red: true,
+      small: ['.X.X.', 'XXXXX', 'XXXXX', '.XXX.', '..X..'],
+      pip: ['.XX.XX.', 'XXXXXXX', 'XXXXXXX', 'XXXXXXX', '.XXXXX.', '..XXX..', '...X...'] },
+    { sym: '♠', red: false,
+      small: ['..X..', '.XXX.', 'XXXXX', '..X..', '.XXX.'],
+      pip: ['...X...', '..XXX..', '.XXXXX.', 'XXXXXXX', 'XXXXXXX', '...X...', '..XXX..'] },
+  ];
+  const RANK = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+
+  const L = 8, C = 15, R = 22;
+  const LAYOUT: Record<number, number[][]> = {
+    2: [[C, 7], [C, 34]],
+    3: [[C, 7], [C, 21], [C, 34]],
+    4: [[L, 7], [R, 7], [L, 34], [R, 34]],
+    5: [[L, 7], [R, 7], [C, 21], [L, 34], [R, 34]],
+    6: [[L, 7], [R, 7], [L, 21], [R, 21], [L, 34], [R, 34]],
+    7: [[L, 7], [R, 7], [C, 14], [L, 21], [R, 21], [L, 34], [R, 34]],
+    8: [[L, 7], [R, 7], [C, 14], [L, 21], [R, 21], [C, 28], [L, 34], [R, 34]],
+    9: [[L, 7], [R, 7], [L, 16], [R, 16], [C, 21], [L, 25], [R, 25], [L, 34], [R, 34]],
+    10: [[L, 7], [R, 7], [C, 11], [L, 16], [R, 16], [L, 25], [R, 25], [C, 30], [L, 34], [R, 34]],
+  };
+
+  function drawMap(g: CanvasRenderingContext2D, map: string[], ox: number, oy: number, s: number, flip = false, mult = 1) {
+    const rows = map.length, cols = map[0].length;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (map[r][c] !== 'X') continue;
+        const rr = flip ? rows - 1 - r : r, cc = flip ? cols - 1 - c : c;
+        g.fillRect((ox + cc * mult) * s, (oy + rr * mult) * s, mult * s, mult * s);
+      }
+    }
+  }
+
+  function drawText(g: CanvasRenderingContext2D, text: string, ox: number, oy: number, s: number) {
+    [...text].forEach((ch, k) => drawMap(g, FONT[ch], ox + k * 4, oy, s));
+  }
+
+  const textWidth = (text: string) => text.length * 4 - 1;
+
+  const cardCache = new Map<string, HTMLCanvasElement>();
+
+  function cardImage(rank: number, suit: number, s: number) {
+    const id = `${rank}-${suit}-${s}`;
+    const hit = cardCache.get(id);
+    if (hit) return hit;
+    const cv = document.createElement('canvas');
+    cv.width = (CW + 2) * s;
+    cv.height = (CH + 2) * s;
+    const g = cv.getContext('2d')!;
+    const shape = (dx: number, dy: number, inset: number) => {
+      for (let y = inset; y < CH - inset; y++) {
+        const edge = y - inset, fromBottom = CH - 1 - inset - y;
+        const cut = Math.max(0, 2 - Math.min(edge, fromBottom));
+        g.fillRect((dx + inset + cut) * s, (dy + y) * s, (CW - 2 * inset - 2 * cut) * s, s);
+      }
+    };
+    g.fillStyle = 'rgba(0,0,0,0.35)'; shape(2, 2, 0);
+    g.fillStyle = INK; shape(0, 0, 0);
+    g.fillStyle = PAPER; shape(0, 0, 1);
+
+    const st = SUITS[suit];
+    g.fillStyle = st.red ? RED : BLACK;
+    const label = RANK[rank];
+    drawText(g, label, 2, 2, s);
+    drawMap(g, st.small, 2, 8, s);
+    // Upright, not rotated: at 3×5 pixels an upside-down 9 is a 6 and a 4 is an h.
+    drawText(g, label, CW - 2 - textWidth(label), CH - 2 - 5, s);
+    if (rank === 1) drawMap(g, st.pip, 12, 19, s, false, 2);
+    else for (const [x, y] of LAYOUT[rank]) drawMap(g, st.pip, x, y, s);
+    cardCache.set(id, cv);
+    return cv;
+  }
+
+  let felt: HTMLCanvasElement | null = null;
+
+  function feltImage() {
+    if (felt && felt.width === canvas.width) return felt;
+    felt = document.createElement('canvas');
+    felt.width = canvas.width; felt.height = HEIGHT;
+    const g = felt.getContext('2d')!;
+    g.fillStyle = '#1d4438';
+    g.fillRect(0, 0, felt.width, HEIGHT);
+    g.fillStyle = '#21493c';
+    for (let y = 0; y < HEIGHT; y += 4) for (let x = (y / 4) % 2 ? 0 : 4; x < felt.width; x += 8) g.fillRect(x, y, 4, 4);
+    const v = g.createRadialGradient(felt.width / 2, HEIGHT / 2, HEIGHT * 0.2, felt.width / 2, HEIGHT / 2, felt.width * 0.7);
+    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.45)');
+    g.fillStyle = v;
+    g.fillRect(0, 0, felt.width, HEIGHT);
+    return felt;
+  }
+
+  // ---- State ------------------------------------------------------------
+
+  type Card = { rank: number; suit: number; order: number; x: number; y: number; tx: number; ty: number; lift: number };
+  type Mark = 'compare' | 'key' | 'pivot';
+
+  let hand: Card[] = [];
+  let main: (Card | null)[] = [];
+  let aux: (Card | null)[] = [];
+  let piles: Card[][] = [];
+  let pileBy: 'rank' | 'suit' | null = null;
+  let marks = new Map<Card, Mark>();
+  let placed = new Set<Card>();
+  let flipped = new Set<Card>();
+  let range: [number, number] | null = null;
+  let heapSize = 0;
+  let comparisons = 0, moves = 0;
+  let gen: Generator<string> | null = null;
+  let tieText = '—';
+  let running = false, finished = false, snap = true;
+  let nextAt = 0;
+  let s = 2, slot = 0, left = 0, mainY = 34, lowerY = 0;
+
+  const algSelect = document.getElementById('so-alg') as HTMLSelectElement;
+  const dealSelect = document.getElementById('so-deal') as HTMLSelectElement;
+  const keySelect = document.getElementById('so-key') as HTMLSelectElement;
+  const countInput = document.getElementById('so-count') as HTMLInputElement;
+  const speedInput = document.getElementById('so-speed') as HTMLInputElement;
+  const toggleAnimate = document.getElementById('so-toggle-animate') as HTMLInputElement;
+  const toggleOrder = document.getElementById('so-toggle-order') as HTMLInputElement;
+  const btnRun = document.getElementById('so-run') as HTMLButtonElement;
+  const stepInfo = document.getElementById('so-step-info')!;
+
+  const key = (c: { rank: number; suit: number }) => keySelect.value === 'suit' ? c.suit * 10 + c.rank : c.rank;
+  const name = (c: Card) => `${RANK[c.rank]}${SUITS[c.suit].sym}`;
+
+  function swap(i: number, j: number) {
+    const t = main[i]; main[i] = main[j]; main[j] = t;
+    moves++;
+  }
+
+  // ---- Algorithms -------------------------------------------------------
+  // Generators: each `yield` is one visible step, carrying its caption. The
+  // arrays are mutated in place, and cards glide to wherever they now live.
+
+  function* insertion(): Generator<string> {
+    for (let i = 1; i < main.length; i++) {
+      let j = i;
+      while (j > 0) {
+        const a = main[j - 1]!, b = main[j]!;
+        comparisons++;
+        marks = new Map([[b, 'key'], [a, 'compare']]);
+        if (key(a) > key(b)) {
+          yield `${name(b)} is smaller than ${name(a)} — slide it one place left`;
+          swap(j - 1, j);
+          j--;
+        } else {
+          yield `${name(b)} is not smaller than ${name(a)} — it stays. The first ${i + 1} cards are now in order`;
+          break;
+        }
+      }
+    }
+  }
+
+  function* merge(lo: number, hi: number): Generator<string> {
+    if (hi <= lo) return;
+    const mid = (lo + hi) >> 1;
+    yield* merge(lo, mid);
+    yield* merge(mid + 1, hi);
+    range = [lo, hi];
+    let i = lo, j = mid + 1, k = lo;
+    while (i <= mid && j <= hi) {
+      const a = main[i]!, b = main[j]!;
+      comparisons++;
+      marks = new Map([[a, 'compare'], [b, 'compare']]);
+      // `<`, not `<=`: on a tie the left card goes first, which is what keeps
+      // merge sort stable.
+      const takeRight = key(b) < key(a);
+      yield `Merging: ${name(a)} vs ${name(b)} — take ${takeRight ? name(b) : name(a)}${key(a) === key(b) ? ' (tie: left first)' : ''}`;
+      if (takeRight) { aux[k++] = b; main[j++] = null; } else { aux[k++] = a; main[i++] = null; }
+      moves++;
+    }
+    marks = new Map();
+    while (i <= mid) { aux[k++] = main[i]; main[i++] = null; moves++; }
+    while (j <= hi) { aux[k++] = main[j]; main[j++] = null; moves++; }
+    yield 'One run is empty — the rest of the other follows as it is';
+    for (let t = lo; t <= hi; t++) { main[t] = aux[t]; aux[t] = null; moves++; }
+    yield `Cards ${lo + 1}–${hi + 1} are merged and go back up`;
+  }
+
+  function* quick(lo: number, hi: number): Generator<string> {
+    if (lo > hi) return;
+    if (lo === hi) { placed.add(main[lo]!); return; }
+    const pivot = main[hi]!;
+    range = [lo, hi];
+    let i = lo;
+    for (let j = lo; j < hi; j++) {
+      const c = main[j]!;
+      comparisons++;
+      marks = new Map([[pivot, 'pivot'], [c, 'compare']]);
+      if (key(c) < key(pivot)) {
+        yield `${name(c)} is below the pivot ${name(pivot)} — move it to the left group`;
+        if (i !== j) swap(i, j);
+        i++;
+      } else {
+        yield `${name(c)} is not below the pivot ${name(pivot)} — leave it on the right`;
+      }
+    }
+    marks = new Map([[pivot, 'pivot']]);
+    if (i !== hi) swap(i, hi);
+    yield `The pivot ${name(pivot)} drops in between the groups: place ${i + 1}, and it never moves again`;
+    placed.add(pivot);
+    yield* quick(lo, i - 1);
+    yield* quick(i + 1, hi);
+  }
+
+  function* siftDown(i: number, n: number): Generator<string> {
+    for (;;) {
+      const l = 2 * i + 1, r = l + 1;
+      if (l >= n) return;
+      let big = l;
+      if (r < n) {
+        comparisons++;
+        marks = new Map([[main[l]!, 'compare'], [main[r]!, 'compare']]);
+        yield `Children ${name(main[l]!)} and ${name(main[r]!)} — which is bigger?`;
+        if (key(main[r]!) > key(main[l]!)) big = r;
+      }
+      comparisons++;
+      marks = new Map([[main[i]!, 'key'], [main[big]!, 'compare']]);
+      if (key(main[big]!) > key(main[i]!)) {
+        yield `${name(main[big]!)} beats its parent ${name(main[i]!)} — swap them`;
+        swap(i, big);
+        i = big;
+      } else {
+        yield `Parent ${name(main[i]!)} is at least as big as ${name(main[big]!)} — this branch is a heap`;
+        return;
+      }
+    }
+  }
+
+  function* heap(): Generator<string> {
+    const n = main.length;
+    heapSize = n;
+    for (let i = (n >> 1) - 1; i >= 0; i--) yield* siftDown(i, n);
+    for (let end = n - 1; end > 0; end--) {
+      marks = new Map([[main[0]!, 'pivot']]);
+      yield `The root ${name(main[0]!)} is the largest left — swap it to the end`;
+      swap(0, end);
+      placed.add(main[end]!);
+      heapSize = end;
+      yield* siftDown(0, end);
+    }
+    placed.add(main[0]!);
+  }
+
+  function* radix(): Generator<string> {
+    const passes: ('rank' | 'suit')[] = keySelect.value === 'suit' ? ['rank', 'suit'] : ['rank'];
+    for (const pass of passes) {
+      pileBy = pass;
+      piles = Array.from({ length: pass === 'rank' ? 10 : 4 }, () => []);
+      for (let i = 0; i < main.length; i++) {
+        const c = main[i]!;
+        const b = pass === 'rank' ? c.rank - 1 : c.suit;
+        marks = new Map([[c, 'key']]);
+        yield `${name(c)} goes on the ${pass === 'rank' ? RANK[c.rank] : SUITS[c.suit].sym} pile — no comparison needed`;
+        piles[b].push(c);
+        main[i] = null;
+        moves++;
+      }
+      marks = new Map();
+      let k = 0;
+      for (let b = 0; b < piles.length; b++) {
+        if (!piles[b].length) continue;
+        for (const c of piles[b]) { main[k++] = c; moves++; }
+        const label = pass === 'rank' ? RANK[b + 1] : SUITS[b].sym;
+        piles[b] = [];
+        yield `Pick up the ${label} pile, keeping its order`;
+      }
+      pileBy = null;
+      piles = [];
+      if (pass === 'rank' && passes.length > 1) yield 'Sorted by rank. Now deal again by suit — equal suits keep this rank order';
+    }
+  }
+
+  const ALGS: Record<string, () => Generator<string>> = {
+    insertion,
+    merge: () => merge(0, main.length - 1),
+    quick: () => quick(0, main.length - 1),
+    heap,
+    radix,
+  };
+
+  // ---- Flow -------------------------------------------------------------
+
+  function deal() {
+    const n = Number(countInput.value);
+    let deck: { rank: number; suit: number }[] = [];
+    for (let d = 0; d < 2; d++) for (let suit = 0; suit < 4; suit++) for (let rank = 1; rank <= 10; rank++) deck.push({ rank, suit });
+    if (dealSelect.value === 'few') {
+      const ranks = new Set<number>();
+      while (ranks.size < 3) ranks.add(1 + Math.floor(rand() * 10));
+      deck = deck.filter((c) => ranks.has(c.rank));
+    }
+    for (let k = deck.length - 1; k > 0; k--) {
+      const m = Math.floor(rand() * (k + 1));
+      [deck[k], deck[m]] = [deck[m], deck[k]];
+    }
+    let cards = deck.slice(0, n);
+    if (dealSelect.value === 'nearly' || dealSelect.value === 'reversed') {
+      cards.sort((a, b) => key(a) - key(b));
+      if (dealSelect.value === 'reversed') cards.reverse();
+      else for (let k = 0; k < Math.max(1, Math.round(n / 5)); k++) {
+        const i = Math.floor(rand() * (n - 1));
+        [cards[i], cards[i + 1]] = [cards[i + 1], cards[i]];
+      }
+    }
+    hand = cards.map((c, i) => ({ ...c, order: i, x: 0, y: 0, tx: 0, ty: 0, lift: 0 }));
+    restore();
+    snap = true;
+  }
+
+  /** Back to the dealt order — the same hand, so algorithms can be compared. */
+  function restore() {
+    main = hand.slice();
+    aux = new Array(hand.length).fill(null);
+    piles = []; pileBy = null;
+    marks = new Map(); placed = new Set(); flipped = new Set();
+    range = null; heapSize = 0;
+    comparisons = 0; moves = 0;
+    gen = null; running = false; finished = false;
+    stepInfo.textContent = '';
+    updateUi();
+  }
+
+  function start() {
+    if (finished || gen === null) restore();
+    gen = ALGS[algSelect.value]();
+  }
+
+  function advance() {
+    if (!gen) return;
+    const r = gen.next();
+    if (r.done) finish();
+    else stepInfo.textContent = r.value;
+    updateUi();
+  }
+
+  function finish() {
+    gen = null; running = false; finished = true;
+    marks = new Map(); range = null; heapSize = 0;
+    main.forEach((c) => placed.add(c!));
+    let ties = 0;
+    for (let i = 0; i + 1 < main.length; i++) {
+      const a = main[i]!, b = main[i + 1]!;
+      if (key(a) !== key(b)) continue;
+      ties++;
+      if (a.order > b.order) { flipped.add(a); flipped.add(b); }
+    }
+    const note = algSelect.value === 'radix' ? ' Not one comparison: the cards were only dealt into piles.' : '';
+    stepInfo.textContent = `Sorted: ${comparisons} comparisons, ${moves} moves.${note}`;
+    tieText = ties === 0 ? 'No ties' : flipped.size ? 'Order changed ✗' : 'Order kept ✓';
+    updateUi();
+  }
+
+  function updateUi() {
+    document.getElementById('so-count-val')!.textContent = countInput.value;
+    document.getElementById('so-speed-val')!.textContent = speedInput.value;
+    document.getElementById('so-stat-cmp')!.textContent = comparisons ? String(comparisons) : '—';
+    document.getElementById('so-stat-moves')!.textContent = moves ? String(moves) : '—';
+    document.getElementById('so-stat-stable')!.textContent = finished ? tieText : '—';
+    document.getElementById('so-stat-status')!.textContent = finished ? 'Sorted ✓' : running ? 'Sorting' : gen ? 'Paused' : 'Ready';
+    btnRun.textContent = running ? '❚❚ Pause' : gen ? '▶ Resume' : finished ? '↺ Sort again' : '▶ Sort';
+  }
+
+  // ---- Layout & drawing -------------------------------------------------
+
+  // Cards crop thumbnails to 4:3, so a capture lays the table out in a 4:3
+  // band down the middle instead of losing the end cards.
+  const usableWidth = () => THUMB ? Math.min(canvas.width, Math.round(HEIGHT * 4 / 3)) : canvas.width;
+
+  function layout() {
+    const n = hand.length, avail = usableWidth() - 32;
+    // Allow cards to overlap by about a fifth before shrinking them.
+    s = Math.max(1, Math.min(4, Math.floor(avail / (n * 0.8) / CW), Math.floor(HEIGHT * 0.3 / CH)));
+    const cw = CW * s;
+    // Cards overlap like a fanned hand when they don't fit; the top-left index
+    // of each card stays visible.
+    slot = n > 1 ? Math.min(cw + 4 * s, (avail - cw) / (n - 1)) : 0;
+    left = Math.round((canvas.width - ((n - 1) * slot + cw)) / 2);
+    // Only merge and radix use the lower half of the table; the others sort
+    // in a single row, centred.
+    const twoRows = algSelect.value === 'merge' || algSelect.value === 'radix';
+    mainY = twoRows ? 34 : Math.round((HEIGHT - CH * s) / 2) - 20;
+    lowerY = 34 + CH * s + 64;
+  }
+
+  const xOf = (i: number) => Math.round(left + i * slot);
+
+  function pileX(b: number, count: number) {
+    const cw = CW * s, avail = usableWidth() - 32;
+    const step = Math.min(cw + 6 * s, (avail - cw) / (count - 1));
+    return Math.round((canvas.width - ((count - 1) * step + cw)) / 2 + b * step);
+  }
+
+  function setTargets() {
+    main.forEach((c, i) => { if (c) { c.tx = xOf(i); c.ty = mainY; } });
+    aux.forEach((c, i) => { if (c) { c.tx = xOf(i); c.ty = lowerY; } });
+    const tallest = Math.max(1, ...piles.map((p) => p.length));
+    const offset = Math.min(12 * s, (HEIGHT - lowerY - CH * s - 8) / Math.max(1, tallest - 1));
+    piles.forEach((p, b) => p.forEach((c, k) => { c.tx = pileX(b, piles.length); c.ty = lowerY + k * offset; }));
+  }
+
+  function outline(x: number, y: number, colour: string) {
+    const cw = CW * s, ch = CH * s, t = Math.max(2, s);
+    ctx.fillStyle = colour;
+    ctx.fillRect(x - t, y - t, cw + 2 * t, t);
+    ctx.fillRect(x - t, y + ch, cw + 2 * t, t);
+    ctx.fillRect(x - t, y, t, ch);
+    ctx.fillRect(x + cw, y, t, ch);
+  }
+
+  function badge(c: Card) {
+    const text = String(c.order + 1), w = textWidth(text) * 2;
+    const x = Math.round(c.x + (CW * s - w) / 2), y = Math.round(c.y - c.lift - 16);
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(x - 3, y - 3, w + 6, 16);
+    ctx.fillStyle = flipped.has(c) ? '#f87171' : '#e2e8f0';
+    ctx.save(); ctx.translate(x, y);
+    drawText(ctx, text, 0, 0, 2);
+    ctx.restore();
+  }
+
+  const MARK_COLOUR: Record<Mark, string> = { compare: '#f59e0b', key: '#38bdf8', pivot: '#a78bfa' };
+
+  function render(dt: number) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(feltImage(), 0, 0);
+    const cw = CW * s, ch = CH * s;
+
+    if (heapSize > 1) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 0; i < heapSize; i++) {
+        for (const child of [2 * i + 1, 2 * i + 2]) {
+          if (child >= heapSize) continue;
+          const x1 = xOf(i) + cw / 2, x2 = xOf(child) + cw / 2, y = mainY + ch + 8;
+          ctx.moveTo(x1, y);
+          ctx.quadraticCurveTo((x1 + x2) / 2, y + Math.min(52, Math.abs(x2 - x1) * 0.3 + 10), x2, y);
+        }
+      }
+      ctx.stroke();
+    }
+    if (range) {
+      const x1 = xOf(range[0]), x2 = xOf(range[1]) + cw, y = mainY + ch + 10;
+      ctx.fillStyle = 'rgba(245,158,11,0.55)';
+      ctx.fillRect(x1, y, x2 - x1, 2);
+      ctx.fillRect(x1, y - 5, 2, 7);
+      ctx.fillRect(x2 - 2, y - 5, 2, 7);
+    }
+    if (pileBy) {
+      ctx.fillStyle = 'rgba(226,232,240,0.7)';
+      piles.forEach((_, b) => {
+        const x = pileX(b, piles.length) + cw / 2;
+        ctx.save(); ctx.translate(Math.round(x), lowerY - 22);
+        if (pileBy === 'rank') {
+          const label = RANK[b + 1];
+          drawText(ctx, label, -Math.floor(textWidth(label) / 2), 0, 2);
+        } else {
+          drawMap(ctx, SUITS[b].small, -3, 0, 2);
+        }
+        ctx.restore();
+      });
+    }
+
+    setTargets();
+    const k = snap ? 1 : 1 - Math.exp(-dt * 16);
+    for (const c of hand) {
+      c.x += (c.tx - c.x) * k;
+      c.y += (c.ty - c.y) * k;
+      const lift = marks.has(c) ? 7 * s : 0;
+      c.lift += (lift - c.lift) * k;
+    }
+    snap = false;
+
+    // Settled cards first in row order, travelling cards on top.
+    const moving = (c: Card) => Math.abs(c.tx - c.x) + Math.abs(c.ty - c.y) > 2;
+    const order = [...main, ...aux, ...piles.flat()].filter((c): c is Card => !!c);
+    const drawOne = (c: Card) => {
+      const x = Math.round(c.x), y = Math.round(c.y - c.lift);
+      const mark = marks.get(c);
+      if (mark) outline(x, y, MARK_COLOUR[mark]);
+      ctx.drawImage(cardImage(c.rank, c.suit, s), x, y);
+      if (placed.has(c) && !flipped.has(c)) {
+        ctx.fillStyle = '#4ade80';
+        ctx.fillRect(x + 4 * s, y + ch + 3 * s, cw - 8 * s, 2 * s);
+      }
+    };
+    order.filter((c) => !moving(c)).forEach(drawOne);
+    order.filter(moving).forEach(drawOne);
+
+    if (toggleOrder.checked && slot >= 18) {
+      [...main, ...aux].forEach((c) => { if (c) badge(c); });
+    }
+  }
+
+  let last = performance.now();
+  function frame(now: number) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (running && now >= nextAt) {
+      advance();
+      nextAt = now + [700, 420, 240, 120, 50][Number(speedInput.value) - 1];
+    }
+    layout();
+    render(dt);
+    requestAnimationFrame(frame);
+  }
+
+  // ---- Wiring -----------------------------------------------------------
+
+  btnRun.addEventListener('click', () => {
+    if (running) { running = false; updateUi(); return; }
+    if (!gen) start();
+    if (!toggleAnimate.checked) {
+      for (let guard = 0; gen && guard < 100000; guard++) advance();
+      snap = true;
+      return;
+    }
+    running = true;
+    nextAt = 0;
+    updateUi();
+  });
+  document.getElementById('so-step')!.addEventListener('click', () => {
+    running = false;
+    if (!gen) start();
+    advance();
+  });
+  document.getElementById('so-deal-btn')!.addEventListener('click', deal);
+  algSelect.addEventListener('change', restore);
+  [dealSelect, keySelect, countInput].forEach((el) => el.addEventListener('change', deal));
+  countInput.addEventListener('input', updateUi);
+  speedInput.addEventListener('input', updateUi);
+
+  // Layout is recomputed from the canvas width every frame by the rAF loop,
+  // so a resize only has to resize the canvas; nothing is lost or blanked.
+  function resizeCanvas() {
+    canvas.width = wrap.clientWidth;
+    canvas.height = HEIGHT;
+  }
+  window.addEventListener('resize', resizeCanvas);
+
+  const params = new URLSearchParams(location.search);
+  for (const [name_, select] of [['alg', algSelect], ['deal', dealSelect], ['key', keySelect]] as const) {
+    const v = params.get(name_);
+    if (v && [...select.options].some((o) => o.value === v)) select.value = v;
+  }
+  if (params.get('order') === '0') toggleOrder.checked = false;
+  const cardsParam = Number(params.get('cards'));
+  if (cardsParam >= 4 && cardsParam <= 20) countInput.value = String(cardsParam);
+
+  resizeCanvas();
+  deal();
+
+  if (THUMB) {
+    start();
+    const steps = Number(params.get('steps')) || Infinity;
+    for (let k = 0; gen && k < steps; k++) advance();
+    snap = true;
+  }
+
+  requestAnimationFrame(frame);
+</script>

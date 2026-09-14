@@ -6,6 +6,11 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.8.0] — 2026-09-15
+
+### Added
+- **Sorting Algorithms** playground — insertion, merge, quick, heap and radix sort on one page, played out on pixel-art playing cards drawn entirely from string bitmaps (no sprites). Each algorithm is a generator yielding one captioned step at a time; the same hand is kept across algorithms so comparison and move counts line up. Deals for shuffled, nearly sorted, reversed and many-ties hands, a suit-then-rank key that makes radix sort deal twice, original-order badges and a stability readout that flags equal cards that changed order, heap-tree arcs, merge buffer row and radix piles.
+
 ## [0.7.0] — 2026-09-14
 
 ### Added

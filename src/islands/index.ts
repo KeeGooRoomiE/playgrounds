@@ -8,6 +8,7 @@ import GalaxySampler from './GalaxySampler.astro';
 import Kruskal from './Kruskal.astro';
 import Hamiltonian from './Hamiltonian.astro';
 import BrownianTree from './BrownianTree.astro';
+import Sorting from './Sorting.astro';
 
 export const islands: Record<string, any> = {
   'perlin-noise': PerlinNoise,
@@ -20,4 +21,5 @@ export const islands: Record<string, any> = {
   kruskal: Kruskal,
   hamiltonian: Hamiltonian,
   'brownian-tree': BrownianTree,
+  sorting: Sorting,
 };
