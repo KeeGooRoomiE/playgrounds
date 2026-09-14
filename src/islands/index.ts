@@ -6,6 +6,7 @@ import Dfs from './Dfs.astro';
 import Dijkstra from './Dijkstra.astro';
 import GalaxySampler from './GalaxySampler.astro';
 import Kruskal from './Kruskal.astro';
+import Hamiltonian from './Hamiltonian.astro';
 
 export const islands: Record<string, any> = {
   'perlin-noise': PerlinNoise,
@@ -16,4 +17,5 @@ export const islands: Record<string, any> = {
   dijkstra: Dijkstra,
   'galaxy-sampler': GalaxySampler,
   kruskal: Kruskal,
+  hamiltonian: Hamiltonian,
 };

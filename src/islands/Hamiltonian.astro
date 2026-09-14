@@ -1,0 +1,682 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Skin</div>
+      <select id="ham-skin">
+        <option value="snake">Snake</option>
+        <option value="puzzle">Line puzzle</option>
+        <option value="graph">Graph</option>
+      </select>
+    </div>
+
+    <div>
+      <div class="ctrl-label">Goal</div>
+      <select id="ham-goal">
+        <option value="path">Path — visit every cell once</option>
+        <option value="cycle">Cycle — and end next to the start</option>
+      </select>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="range-value"><span class="range-label">Board size</span><span class="range-number" id="ham-size-val">8×8</span></div>
+      <input type="range" id="ham-size" min="4" max="10" value="8" step="1" />
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Blocks</span><span class="range-number" id="ham-density-val">12%</span></div>
+      <input type="range" id="ham-density" min="0" max="30" value="12" step="1" />
+      <div class="toggle-row" style="margin-top:8px">
+        <span class="toggle-label">Guarantee solvable</span>
+        <label class="toggle"><input type="checkbox" id="ham-toggle-solvable" checked /><span class="slider"></span></label>
+      </div>
+      <button type="button" class="btn" id="ham-generate" style="margin-top:8px;width:100%">🎲 Random field</button>
+    </div>
+
+    <div>
+      <div class="ctrl-label">Tap a cell to</div>
+      <select id="ham-tap">
+        <option value="block">Toggle a block</option>
+        <option value="start">Move the start</option>
+      </select>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Mode</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="toggle-row">
+          <span class="toggle-label">Animate search</span>
+          <label class="toggle"><input type="checkbox" id="ham-toggle-animate" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Step-by-step (165ms)</span>
+          <label class="toggle"><input type="checkbox" id="ham-toggle-step" /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Check parity first</span>
+          <label class="toggle"><input type="checkbox" id="ham-toggle-proof" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Show parity colours</span>
+          <label class="toggle"><input type="checkbox" id="ham-toggle-parity" /><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="ham-run">▶ Fill the board</button>
+      <button type="button" class="btn" id="ham-step" disabled>→ Next move</button>
+      <button type="button" class="btn" id="ham-reset">↺ Clear path</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Cells filled</span><span class="stat-val" id="ham-stat-filled">—</span></div>
+      <div class="stat-row"><span>Moves tried</span><span class="stat-val" id="ham-stat-tried">—</span></div>
+      <div class="stat-row"><span>Backtracks</span><span class="stat-val" id="ham-stat-back">—</span></div>
+      <div class="stat-row"><span>Pruned early</span><span class="stat-val" id="ham-stat-pruned">—</span></div>
+      <div class="stat-row"><span>Status</span><span class="stat-val" id="ham-stat-status">Ready</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Legend</div>
+      <div class="legend-item"><span class="legend-dot" id="ham-dot-block"></span> Block</div>
+      <div class="legend-item"><span class="legend-dot" id="ham-dot-path"></span> Path so far</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> Just abandoned / refused</div>
+      <div class="legend-item"><span class="legend-dot" style="background:rgba(99,102,241,0.35)"></span> Parity: dark squares</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap" id="ham-wrap">
+      <canvas id="ham-canvas"></canvas>
+    </div>
+    <div class="step-info" id="ham-step-info"></div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  canvas { width: auto; height: auto; display: block; max-width: 100%; margin: 0 auto; cursor: pointer; }
+  .legend-dot { border-radius: 2px; width: 12px; height: 12px; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+</style>
+
+<script>
+  import { getRandom, isThumbnailMode } from '../lib/seed';
+
+  const rand = getRandom();
+  const canvas = document.getElementById('ham-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const wrap = document.getElementById('ham-wrap')!;
+
+  // Palette and drawing style only. The board, the start and the search order
+  // are identical under every skin — a snake filling its board, a line through
+  // a puzzle grid and a walk through a graph are the same object.
+  type Skin = { frame: string; boardA: string; boardB: string; block: string; path: string; head: string; style: 'snake' | 'line' | 'graph' };
+  const SKINS: Record<string, Skin> = {
+    snake:  { frame: '#1a3324', boardA: '#1f3d2b', boardB: '#244733', block: '#78716c', path: '#4ade80', head: '#15803d', style: 'snake' },
+    puzzle: { frame: '#f8fafc', boardA: '#f8fafc', boardB: '#f8fafc', block: '#1e293b', path: '#6366f1', head: '#4338ca', style: 'line' },
+    graph:  { frame: '#ffffff', boardA: '#ffffff', boardB: '#ffffff', block: '#f1f5f9', path: '#f59e0b', head: '#b45309', style: 'graph' },
+  };
+
+  const REJECT = '#ef4444';
+  const MAX_MOVES = 400000;
+  const HIDDEN_MOVES = 6000;
+
+  let N = 8, CS = 40, OX = 0;
+  let blocked = new Uint8Array(0);
+  let visited = new Uint8Array(0);
+  let adj: number[][] = [];
+  let open = 0;
+  let start = 0;
+  let path: number[] = [];
+  let choices: number[][] = [];
+  let tried = 0, backs = 0, pruned = 0;
+  let flash = -1;
+  let lastReason = '';
+  let lastEvent: 'extend' | 'pruned' | 'back' | 'found' | 'exhausted' = 'extend';
+  let outcome: 'none' | 'running' | 'found' | 'none-exists' | 'impossible' | 'gave-up' = 'none';
+  let running = false;
+  let animId: ReturnType<typeof setTimeout> | null = null;
+
+  const skinSelect = document.getElementById('ham-skin') as HTMLSelectElement;
+  const goalSelect = document.getElementById('ham-goal') as HTMLSelectElement;
+  const tapSelect = document.getElementById('ham-tap') as HTMLSelectElement;
+  const sizeInput = document.getElementById('ham-size') as HTMLInputElement;
+  const densityInput = document.getElementById('ham-density') as HTMLInputElement;
+  const toggleSolvable = document.getElementById('ham-toggle-solvable') as HTMLInputElement;
+  const toggleAnimate = document.getElementById('ham-toggle-animate') as HTMLInputElement;
+  const toggleStep = document.getElementById('ham-toggle-step') as HTMLInputElement;
+  const toggleProof = document.getElementById('ham-toggle-proof') as HTMLInputElement;
+  const toggleParity = document.getElementById('ham-toggle-parity') as HTMLInputElement;
+  const btnStep = document.getElementById('ham-step') as HTMLButtonElement;
+  const stepInfo = document.getElementById('ham-step-info')!;
+
+  function skin() { return SKINS[skinSelect.value] ?? SKINS.snake; }
+  const isCycle = () => goalSelect.value === 'cycle';
+  const rc = (i: number) => [Math.floor(i / N), i % N];
+  const label = (i: number) => { const [r, c] = rc(i); return `r${r + 1} c${c + 1}`; };
+  const dark = (i: number) => { const [r, c] = rc(i); return (r + c) % 2 === 0; };
+
+  function cancelAnim() { if (animId) { clearTimeout(animId); animId = null; } }
+
+  function resizeCanvas() {
+    const side = Math.min(wrap.clientWidth, 520);
+    CS = Math.max(16, Math.floor(side / N));
+    // Cards crop to 4:3, so a thumbnail pads the square board sideways
+    // instead of losing its top and bottom rows.
+    OX = isThumbnailMode() ? Math.round(N * CS / 6) : 0;
+    canvas.width = N * CS + OX * 2;
+    canvas.height = N * CS;
+  }
+
+  function buildAdjacency() {
+    adj = Array.from({ length: N * N }, () => []);
+    open = 0;
+    for (let i = 0; i < N * N; i++) {
+      if (blocked[i]) continue;
+      open++;
+      const [r, c] = rc(i);
+      if (r > 0 && !blocked[i - N]) adj[i].push(i - N);
+      if (c < N - 1 && !blocked[i + 1]) adj[i].push(i + 1);
+      if (r < N - 1 && !blocked[i + N]) adj[i].push(i + N);
+      if (c > 0 && !blocked[i - 1]) adj[i].push(i - 1);
+    }
+  }
+
+  /** Warnsdorff's rule: try the neighbour with the fewest onward exits first. */
+  function candidates(head: number) {
+    const onward = (u: number) => adj[u].reduce((n, v) => n + (visited[v] ? 0 : 1), 0);
+    return adj[head].filter((u) => !visited[u]).sort((a, b) => onward(a) - onward(b));
+  }
+
+  /**
+   * Necessary conditions on what's left after a move. Failing any of them
+   * means no completion exists, so the move is refused without exploring it.
+   */
+  function feasible(): string | null {
+    const head = path[path.length - 1];
+    const remaining = open - path.length;
+    if (remaining === 0) {
+      if (isCycle() && !(open >= 4 && adj[head].includes(start))) return 'it finishes away from the start';
+      return null;
+    }
+    if (isCycle() && path.length > 1 && !adj[start].some((u) => !visited[u])) return 'it walls the start in';
+
+    const seen = new Uint8Array(N * N);
+    const queue = [head];
+    seen[head] = 1;
+    let reached = 0;
+    while (queue.length) {
+      const x = queue.pop()!;
+      for (const u of adj[x]) {
+        if (visited[u] || seen[u]) continue;
+        seen[u] = 1; reached++; queue.push(u);
+      }
+    }
+    if (reached < remaining) return 'it cuts the empty cells into separate pieces';
+
+    let ends = 0;
+    for (let i = 0; i < N * N; i++) {
+      if (blocked[i] || visited[i]) continue;
+      let exits = 0;
+      for (const u of adj[i]) if (!visited[u] || u === head || (isCycle() && u === start)) exits++;
+      if (isCycle() ? exits < 2 : exits < 1) return `it leaves ${label(i)} with no way in and out`;
+      if (!isCycle() && exits === 1 && ++ends > 1) return `it leaves two dead ends, ${label(i)} among them`;
+    }
+    return null;
+  }
+
+  /** Cheap arguments that settle "impossible" without searching at all. */
+  function proveImpossible(): string | null {
+    if (open === 0) return 'every cell is blocked';
+    const seen = new Uint8Array(N * N);
+    const queue = [start];
+    seen[start] = 1;
+    let reached = 1;
+    while (queue.length) {
+      const x = queue.pop()!;
+      for (const u of adj[x]) if (!seen[u]) { seen[u] = 1; reached++; queue.push(u); }
+    }
+    if (reached < open) return 'the open cells are split into separate islands';
+
+    let d = 0, l = 0;
+    const leaves: number[] = [];
+    for (let i = 0; i < N * N; i++) {
+      if (blocked[i]) continue;
+      if (dark(i)) d++; else l++;
+      if (adj[i].length === 1) leaves.push(i);
+    }
+    const counts = `${d} dark vs ${l} light squares`;
+    if (isCycle()) {
+      if (open < 4) return 'a loop needs at least four cells';
+      if (d !== l) return `parity — every move changes colour, so a loop needs equal counts, and there are ${counts}`;
+      if (leaves.length) return `${label(leaves[0])} has only one neighbour, and a loop must enter and leave every cell`;
+    } else {
+      if (Math.abs(d - l) > 1) return `parity — a path alternates colours, so the counts can differ by at most one, and there are ${counts}`;
+      if (d !== l && dark(start) !== d > l) return `parity — with ${counts} the path must start and end on the ${d > l ? 'dark' : 'light'} colour`;
+      if (leaves.length > 2) return `${leaves.length} cells have a single neighbour, but a path only has two ends`;
+      if (leaves.length === 2 && !leaves.includes(start)) return `${label(leaves[0])} and ${label(leaves[1])} both have to be the far end`;
+    }
+    return null;
+  }
+
+  function resetPath() {
+    cancelAnim();
+    running = false;
+    visited = new Uint8Array(N * N);
+    path = blocked[start] ? [] : [start];
+    if (path.length) visited[start] = 1;
+    choices = path.length ? [candidates(start)] : [];
+    tried = 0; backs = 0; pruned = 0; flash = -1;
+    outcome = 'none';
+    btnStep.disabled = true;
+    stepInfo.textContent = '';
+    updateStats('Ready');
+    render();
+  }
+
+  /** One visible event of the search: extend, refuse, or back up. */
+  function stepOnce(): 'extend' | 'pruned' | 'back' | 'found' | 'exhausted' {
+    const k = path.length - 1;
+    if (k === 0 && open === 1 && !isCycle()) return 'found';
+    const options = choices[k];
+    if (options.length) {
+      const next = options.shift()!;
+      tried++;
+      path.push(next); visited[next] = 1;
+      const why = feasible();
+      if (why) {
+        path.pop(); visited[next] = 0;
+        pruned++; flash = next;
+        lastReason = why;
+        return 'pruned';
+      }
+      flash = -1;
+      if (path.length === open) return 'found';
+      choices.push(candidates(next));
+      return 'extend';
+    }
+    const dead = path.pop()!;
+    visited[dead] = 0;
+    choices.pop();
+    backs++; flash = dead;
+    return path.length ? 'back' : 'exhausted';
+  }
+
+  function searchSilently(budget: number) {
+    resetPath();
+    if (!path.length || proveImpossible()) return false;
+    for (let m = 0; m < budget; m++) {
+      const e = stepOnce();
+      if (e === 'found') return true;
+      if (e === 'exhausted') return false;
+    }
+    return false;
+  }
+
+  function randomField() {
+    const size = N * N;
+    blocked = new Uint8Array(size);
+    const want = Math.round(size * Number(densityInput.value) / 100);
+    for (let placed = 0, guard = 0; placed < want && guard < size * 10; guard++) {
+      const i = Math.floor(rand() * size);
+      if (!blocked[i]) { blocked[i] = 1; placed++; }
+    }
+    if (toggleSolvable.checked) {
+      // Parity is the most common reason a random field fails, and it's
+      // fixable by blocking one more square of the over-represented colour.
+      for (let guard = 0; guard < size; guard++) {
+        let d = 0, l = 0;
+        for (let i = 0; i < size; i++) if (!blocked[i]) { if (dark(i)) d++; else l++; }
+        const diff = d - l;
+        if (isCycle() ? diff === 0 : Math.abs(diff) <= 1) break;
+        const pool = [];
+        for (let i = 0; i < size; i++) if (!blocked[i] && dark(i) === diff > 0) pool.push(i);
+        blocked[pool[Math.floor(rand() * pool.length)]] = 1;
+      }
+    }
+    buildAdjacency();
+    const opens = [];
+    for (let i = 0; i < size; i++) if (!blocked[i]) opens.push(i);
+    const d = opens.filter(dark).length, l = opens.length - d;
+    const preferred = opens.filter((i) => isCycle() || d === l || dark(i) === d > l);
+    const pool = preferred.length ? preferred : opens;
+    start = pool.length ? pool[Math.floor(rand() * pool.length)] : 0;
+  }
+
+  function generate() {
+    cancelAnim();
+    N = Number(sizeInput.value);
+    resizeCanvas();
+    if (!toggleSolvable.checked) {
+      randomField();
+    } else {
+      // Rejection sampling: keep drawing fields until a short, silent search
+      // actually completes one. Densities fall back toward an empty board,
+      // which is always solvable once parity is balanced.
+      const density = densityInput.value;
+      let ok = false;
+      for (let attempt = 0; attempt < 60 && !ok; attempt++) {
+        if (attempt && attempt % 15 === 0) densityInput.value = String(Math.floor(Number(densityInput.value) / 2));
+        randomField();
+        ok = searchSilently(HIDDEN_MOVES);
+      }
+      densityInput.value = density;
+    }
+    buildAdjacency();
+    resetPath();
+  }
+
+  function updateStats(status: string) {
+    document.getElementById('ham-size-val')!.textContent = `${sizeInput.value}×${sizeInput.value}`;
+    document.getElementById('ham-density-val')!.textContent = `${densityInput.value}%`;
+    document.getElementById('ham-stat-filled')!.textContent = open ? `${path.length} / ${open}` : '—';
+    document.getElementById('ham-stat-tried')!.textContent = tried ? tried.toLocaleString('en') : '—';
+    document.getElementById('ham-stat-back')!.textContent = backs ? backs.toLocaleString('en') : '—';
+    document.getElementById('ham-stat-pruned')!.textContent = pruned ? pruned.toLocaleString('en') : '—';
+    document.getElementById('ham-stat-status')!.textContent = status;
+  }
+
+  const centre = (i: number) => { const [r, c] = rc(i); return [c * CS + CS / 2, r * CS + CS / 2]; };
+
+  function render() {
+    const s = skin();
+    wrap.style.background = s.frame;
+    document.getElementById('ham-dot-block')!.style.background = s.style === 'graph' ? '#cbd5e1' : s.block;
+    document.getElementById('ham-dot-path')!.style.background = s.path;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = s.frame;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.translate(OX, 0);
+    for (let i = 0; i < N * N; i++) {
+      const [r, c] = rc(i);
+      const x = c * CS, y = r * CS;
+      ctx.fillStyle = dark(i) ? s.boardA : s.boardB;
+      ctx.fillRect(x, y, CS, CS);
+      if (toggleParity.checked && dark(i) && !blocked[i]) {
+        ctx.fillStyle = s.style === 'snake' ? 'rgba(165,180,252,0.22)' : 'rgba(99,102,241,0.14)';
+        ctx.fillRect(x, y, CS, CS);
+      }
+      if (blocked[i]) drawBlock(s, x, y);
+      else if (s.style === 'line') {
+        ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, CS - 1, CS - 1);
+      }
+    }
+
+    if (s.style === 'graph') drawGraphEdges();
+    drawPath(s);
+
+    if (flash >= 0) {
+      const [r, c] = rc(flash);
+      ctx.strokeStyle = REJECT; ctx.lineWidth = 3;
+      ctx.strokeRect(c * CS + 2.5, r * CS + 2.5, CS - 5, CS - 5);
+    }
+  }
+
+  function drawBlock(s: Skin, x: number, y: number) {
+    if (s.style === 'graph') {
+      ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 1.5;
+      const p = CS * 0.38;
+      ctx.beginPath();
+      ctx.moveTo(x + p, y + p); ctx.lineTo(x + CS - p, y + CS - p);
+      ctx.moveTo(x + CS - p, y + p); ctx.lineTo(x + p, y + CS - p);
+      ctx.stroke();
+      return;
+    }
+    ctx.fillStyle = s.block;
+    if (s.style === 'snake') {
+      ctx.beginPath();
+      ctx.roundRect(x + CS * 0.12, y + CS * 0.12, CS * 0.76, CS * 0.76, CS * 0.22);
+      ctx.fill();
+    } else {
+      ctx.fillRect(x, y, CS, CS);
+    }
+  }
+
+  function drawGraphEdges() {
+    ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < N * N; i++) {
+      for (const u of adj[i]) {
+        if (u < i) continue;
+        const [x1, y1] = centre(i), [x2, y2] = centre(u);
+        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+      }
+    }
+    ctx.stroke();
+    for (let i = 0; i < N * N; i++) {
+      if (blocked[i]) continue;
+      const [x, y] = centre(i);
+      ctx.fillStyle = visited[i] ? '#f59e0b' : '#94a3b8';
+      ctx.beginPath(); ctx.arc(x, y, Math.max(3, CS * 0.12), 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function drawPath(s: Skin) {
+    if (!path.length) return;
+    const closed = outcome === 'found' && isCycle();
+    const width = s.style === 'snake' ? CS * 0.62 : s.style === 'line' ? CS * 0.34 : Math.max(3, CS * 0.1);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = width;
+
+    if (s.style === 'snake') {
+      // Tail pale, head saturated, so the direction of travel reads at a glance.
+      for (let k = 1; k < path.length; k++) {
+        const t = k / Math.max(1, path.length - 1);
+        ctx.strokeStyle = `hsl(142 ${55 + 20 * t}% ${78 - 30 * t}%)`;
+        const [x1, y1] = centre(path[k - 1]), [x2, y2] = centre(path[k]);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+    } else {
+      ctx.strokeStyle = s.path;
+      ctx.beginPath();
+      path.forEach((i, k) => { const [x, y] = centre(i); if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+      ctx.stroke();
+    }
+
+    if (closed) {
+      const [x1, y1] = centre(path[path.length - 1]), [x2, y2] = centre(start);
+      ctx.setLineDash([width * 0.6, width * 0.9]);
+      ctx.strokeStyle = s.style === 'snake' ? '#86efac' : s.path;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    const [sx, sy] = centre(start);
+    ctx.fillStyle = s.style === 'snake' ? '#bbf7d0' : s.path;
+    ctx.beginPath(); ctx.arc(sx, sy, Math.max(4, width * 0.55), 0, Math.PI * 2); ctx.fill();
+
+    const head = path[path.length - 1];
+    const [hx, hy] = centre(head);
+    ctx.fillStyle = s.head;
+    ctx.beginPath(); ctx.arc(hx, hy, Math.max(5, s.style === 'graph' ? CS * 0.2 : width * 0.62), 0, Math.PI * 2); ctx.fill();
+
+    if (s.style === 'snake' && path.length > 1) {
+      const [px, py] = centre(path[path.length - 2]);
+      const dx = Math.sign(hx - px), dy = Math.sign(hy - py);
+      const eye = CS * 0.07, off = CS * 0.14;
+      ctx.fillStyle = '#f0fdf4';
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(hx + dx * off - dy * off * side, hy + dy * off + dx * off * side, eye, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function statusText() {
+    return outcome === 'found' ? (isCycle() ? 'Cycle found ✓' : 'Path found ✓')
+      : outcome === 'none-exists' ? 'None exists'
+      : outcome === 'impossible' ? 'Impossible (proof)'
+      : outcome === 'gave-up' ? 'Gave up'
+      : running ? 'Searching' : 'Ready';
+  }
+
+  function finish(result: 'found' | 'exhausted' | 'gave-up') {
+    running = false;
+    cancelAnim();
+    btnStep.disabled = true;
+    if (result === 'found') {
+      outcome = 'found'; flash = -1;
+      stepInfo.textContent = isCycle()
+        ? `All ${open} cells visited once, and the last touches the start — a Hamiltonian cycle.`
+        : `All ${open} cells visited exactly once — a Hamiltonian path.`;
+    } else if (result === 'exhausted') {
+      outcome = 'none-exists';
+      stepInfo.textContent = isCycle()
+        ? 'Every branch explored and none closed — this field has no Hamiltonian cycle at all.'
+        : `Every branch explored — no Hamiltonian path starts at ${label(start)}.`;
+    } else {
+      outcome = 'gave-up';
+      stepInfo.textContent = `Stopped after ${MAX_MOVES.toLocaleString('en')} moves with no answer either way.`
+        + (toggleProof.checked ? '' : ' Turn on "Check parity first" to see whether it was ever possible.');
+    }
+    updateStats(statusText());
+    render();
+  }
+
+  function describe(e: ReturnType<typeof stepOnce>) {
+    const head = path[path.length - 1];
+    if (e === 'extend') {
+      const left = choices[path.length - 2]?.length ?? 0;
+      return `Move ${path.length - 1}: into ${label(head)}` + (left ? ` — ${left} other option${left > 1 ? 's' : ''} saved for later` : ' — the only option');
+    }
+    if (e === 'pruned') return `Refused ${label(flash)}: ${lastReason}`;
+    if (e === 'back') return `Dead end at ${label(flash)} — back up to ${label(head)} and try its next option`;
+    return '';
+  }
+
+  /** Returns true when the search has ended (and finish() has run). */
+  function advance(): boolean {
+    if (tried + backs >= MAX_MOVES) { finish('gave-up'); return true; }
+    const e = lastEvent = stepOnce();
+    if (e === 'found' || e === 'exhausted') { finish(e); return true; }
+    return false;
+  }
+
+  function run() {
+    cancelAnim();
+    resetPath();
+    if (!path.length) { stepInfo.textContent = 'Every cell is blocked.'; return; }
+
+    if (toggleProof.checked) {
+      const why = proveImpossible();
+      if (why) {
+        outcome = 'impossible';
+        toggleParity.checked = why.startsWith('parity') || toggleParity.checked;
+        stepInfo.textContent = `Impossible before a single move: ${why}.`;
+        updateStats(statusText());
+        render();
+        return;
+      }
+    }
+
+    running = true;
+    outcome = 'running';
+
+    if (toggleStep.checked) {
+      btnStep.disabled = false;
+      updateStats(statusText());
+      stepInfo.textContent = `Start at ${label(start)}. Press → or wait.`;
+      autoStep();
+      return;
+    }
+
+    if (!toggleAnimate.checked) {
+      // Chunked so a hopeless search can't freeze the tab.
+      const chunk = () => {
+        for (let m = 0; m < 20000; m++) if (advance()) return;
+        updateStats(statusText()); render();
+        animId = setTimeout(chunk, 0);
+      };
+      chunk();
+      return;
+    }
+
+    // Starts at a watchable pace, then speeds up so a long backtracking grind
+    // doesn't take minutes to play out.
+    const tick = () => {
+      const burst = Math.min(400, 1 + Math.floor(Math.max(0, tried + backs - open * 2) / 150));
+      for (let m = 0; m < burst; m++) if (advance()) return;
+      stepInfo.textContent = burst === 1 ? describe(lastEvent) : `Searching… ${backs.toLocaleString('en')} dead ends so far`;
+      updateStats(statusText());
+      render();
+      animId = setTimeout(tick, 40);
+    };
+    tick();
+  }
+
+  function autoStep() {
+    cancelAnim();
+    if (!running) return;
+    animId = setTimeout(() => {
+      animId = null;
+      doStep();
+      if (running) autoStep();
+    }, 165);
+  }
+
+  function doStep() {
+    if (!running) return;
+    if (tried + backs >= MAX_MOVES) { finish('gave-up'); return; }
+    const e = stepOnce();
+    if (e === 'found' || e === 'exhausted') { finish(e); return; }
+    stepInfo.textContent = describe(e);
+    updateStats(statusText());
+    render();
+  }
+
+  canvas.addEventListener('click', (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const c = Math.floor((ev.clientX - rect.left) / rect.width * N);
+    const r = Math.floor((ev.clientY - rect.top) / rect.height * N);
+    if (r < 0 || c < 0 || r >= N || c >= N) return;
+    const i = r * N + c;
+    if (tapSelect.value === 'start') {
+      if (blocked[i]) return;
+      start = i;
+    } else {
+      if (i === start) return;
+      blocked[i] = blocked[i] ? 0 : 1;
+      buildAdjacency();
+    }
+    resetPath();
+  });
+
+  toggleStep.addEventListener('change', function () {
+    if (this.checked) toggleAnimate.checked = true;
+  });
+  toggleParity.addEventListener('change', render);
+  skinSelect.addEventListener('change', render);
+  goalSelect.addEventListener('change', () => {
+    resetPath();
+    stepInfo.textContent = 'Goal changed. A field solvable one way may not be the other — 🎲 draws a fresh one.';
+  });
+  sizeInput.addEventListener('input', () => updateStats(statusText()));
+  sizeInput.addEventListener('change', generate);
+  densityInput.addEventListener('input', () => updateStats(statusText()));
+  densityInput.addEventListener('change', generate);
+
+  document.getElementById('ham-generate')!.addEventListener('click', generate);
+  document.getElementById('ham-run')!.addEventListener('click', run);
+  document.getElementById('ham-reset')!.addEventListener('click', resetPath);
+  btnStep.addEventListener('click', doStep);
+
+  // The board doesn't depend on the viewport — only the cell size does — so a
+  // resize rescales and redraws the current state instead of discarding it.
+  // The redraw is still mandatory: resetting canvas.width wipes it blank.
+  window.addEventListener('resize', () => { resizeCanvas(); render(); });
+
+  const params = new URLSearchParams(location.search);
+  const urlSkin = params.get('skin');
+  if (urlSkin && SKINS[urlSkin]) skinSelect.value = urlSkin;
+  if (params.get('goal') === 'cycle') goalSelect.value = 'cycle';
+
+  generate();
+
+  if (isThumbnailMode()) {
+    toggleAnimate.checked = false;
+    toggleStep.checked = false;
+    run();
+  }
+</script>

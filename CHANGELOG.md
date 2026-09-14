@@ -6,6 +6,11 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.0] — 2026-09-14
+
+### Added
+- **Hamiltonian Path** playground — backtracking search for a path or cycle through every open cell of a grid, with Warnsdorff ordering, connectivity/dead-end pruning, and an optional checkerboard parity proof that rejects impossible boards before any search. Random fields with an optional solvability guarantee, tap-to-edit blocks and start, and three skins (Snake, Line puzzle, Graph). Board is a fixed N×N with an adaptive cell size rather than the usual `CELL = 20`, since the search is exponential.
+
 ## [0.5.0] — 2026-09-11
 
 ### Added
