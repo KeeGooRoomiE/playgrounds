@@ -10,6 +10,7 @@ import Hamiltonian from './Hamiltonian.astro';
 import BrownianTree from './BrownianTree.astro';
 import Sorting from './Sorting.astro';
 import Sandbox from './Sandbox.astro';
+import GameOfLife from './GameOfLife.astro';
 
 export const islands: Record<string, any> = {
   'perlin-noise': PerlinNoise,
@@ -24,4 +25,5 @@ export const islands: Record<string, any> = {
   'brownian-tree': BrownianTree,
   sorting: Sorting,
   sandbox: Sandbox,
+  'game-of-life': GameOfLife,
 };

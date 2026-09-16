@@ -1,0 +1,451 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Skin</div>
+      <select id="gol-skin">
+        <option value="classic">Classic</option>
+        <option value="age">Age</option>
+        <option value="trails">Trails</option>
+      </select>
+    </div>
+
+    <div>
+      <div class="ctrl-label">Rule</div>
+      <select id="gol-rule">
+        <option value="life">Life — B3/S23</option>
+        <option value="highlife">HighLife — B36/S23</option>
+        <option value="daynight">Day &amp; Night — B3678/S34678</option>
+      </select>
+    </div>
+
+    <div>
+      <div class="ctrl-label">Edges</div>
+      <select id="gol-edges">
+        <option value="walls">Walls — outside is dead</option>
+        <option value="wrap">Wrap — left meets right</option>
+      </select>
+    </div>
+
+    <div>
+      <div class="ctrl-label">Click the board to</div>
+      <select id="gol-pattern">
+        <option value="draw">Draw cells</option>
+        <option value="glider">Stamp a glider</option>
+        <option value="lwss">Stamp a lightweight spaceship</option>
+        <option value="blinker">Stamp a blinker</option>
+        <option value="toad">Stamp a toad</option>
+        <option value="pulsar">Stamp a pulsar</option>
+        <option value="gun">Stamp a Gosper glider gun</option>
+        <option value="rpento">Stamp an R-pentomino</option>
+        <option value="acorn">Stamp an acorn</option>
+      </select>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">With a mouse, the right button erases.</div>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="range-value"><span class="range-label">Speed</span><span class="range-number" id="gol-speed-val">8/s</span></div>
+      <input type="range" id="gol-speed" min="1" max="10" value="5" step="1" />
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Random density</span><span class="range-number" id="gol-density-val">30%</span></div>
+      <input type="range" id="gol-density" min="5" max="60" value="30" step="5" />
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="gol-run">▶ Run</button>
+      <button type="button" class="btn" id="gol-step">→ One generation</button>
+      <button type="button" class="btn" id="gol-random">🎲 Random fill</button>
+      <button type="button" class="btn" id="gol-clear">✕ Clear</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Generation</span><span class="stat-val" id="gol-stat-gen">0</span></div>
+      <div class="stat-row"><span>Alive</span><span class="stat-val" id="gol-stat-alive">—</span></div>
+      <div class="stat-row"><span>Born / died</span><span class="stat-val" id="gol-stat-flux">—</span></div>
+      <div class="stat-row"><span>State</span><span class="stat-val" id="gol-stat-state">Ready</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Legend</div>
+      <div class="legend-item"><span class="legend-dot" id="gol-dot-alive"></span> Alive</div>
+      <div class="legend-item"><span class="legend-dot" id="gol-dot-old"></span> <span id="gol-label-old">Alive a long time</span></div>
+      <div class="legend-item" style="color:var(--muted)">Drag to draw, right button erases</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap" id="gol-wrap">
+      <canvas id="gol-canvas"></canvas>
+    </div>
+    <div class="step-info" id="gol-step-info">Draw some cells, or stamp a pattern, then press Run.</div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  canvas { width: auto; height: auto; display: block; max-width: 100%; cursor: crosshair; touch-action: none; }
+  .legend-dot { border-radius: 2px; width: 12px; height: 12px; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+</style>
+
+<script>
+  import { getRandom, isThumbnailMode } from '../lib/seed';
+
+  const rand = getRandom();
+  const THUMB = isThumbnailMode();
+  const canvas = document.getElementById('gol-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const wrap = document.getElementById('gol-wrap')!;
+
+  const CELL = 8;
+  const HEIGHT = 520;
+  const H = Math.floor(HEIGHT / CELL);
+  const RATES = [1, 2, 3, 5, 8, 12, 20, 30, 45, 60];
+
+  // born[n] / survive[n]: what a cell with n live neighbours does next.
+  const RULES: Record<string, { born: number[]; survive: number[] }> = {
+    life: { born: [3], survive: [2, 3] },
+    highlife: { born: [3, 6], survive: [2, 3] },
+    daynight: { born: [3, 6, 7, 8], survive: [3, 4, 6, 7, 8] },
+  };
+
+  const PATTERNS: Record<string, string[]> = {
+    glider: ['.O.', '..O', 'OOO'],
+    lwss: ['.OO.O', 'O....', 'O...O', 'OOOO.'],
+    blinker: ['OOO'],
+    toad: ['.OOO', 'OOO.'],
+    pulsar: [
+      '..OOO...OOO..',
+      '.............',
+      'O....O.O....O',
+      'O....O.O....O',
+      'O....O.O....O',
+      '..OOO...OOO..',
+      '.............',
+      '..OOO...OOO..',
+      'O....O.O....O',
+      'O....O.O....O',
+      'O....O.O....O',
+      '.............',
+      '..OOO...OOO..',
+    ],
+    gun: [
+      '........................O...........',
+      '......................O.O...........',
+      '............OO......OO............OO',
+      '...........O...O....OO............OO',
+      'OO........O.....O...OO..............',
+      'OO........O...O.OO....O.O...........',
+      '..........O.....O.......O...........',
+      '...........O...O....................',
+      '............OO......................',
+    ],
+    rpento: ['.OO', 'OO.', '.O.'],
+    acorn: ['.O.....', '...O...', 'OO..OOO'],
+  };
+
+  let W = 0;
+  let cur = new Uint8Array(0), nxt = new Uint8Array(0);
+  let age = new Uint16Array(0), ghost = new Uint8Array(0);
+  let gen = 0, alive = 0, births = 0, deaths = 0;
+  let running = false, carry = 0, last = performance.now();
+  let stateText = 'Ready';
+  // Recent board fingerprints, so a repeating pattern can announce its period.
+  let seen = new Map<number, number>();
+
+  const skinSelect = document.getElementById('gol-skin') as HTMLSelectElement;
+  const ruleSelect = document.getElementById('gol-rule') as HTMLSelectElement;
+  const edgeSelect = document.getElementById('gol-edges') as HTMLSelectElement;
+  const patternSelect = document.getElementById('gol-pattern') as HTMLSelectElement;
+  const speedInput = document.getElementById('gol-speed') as HTMLInputElement;
+  const densityInput = document.getElementById('gol-density') as HTMLInputElement;
+  const btnRun = document.getElementById('gol-run') as HTMLButtonElement;
+  const stepInfo = document.getElementById('gol-step-info')!;
+
+  function allocate(width: number) {
+    const w = Math.max(30, width);
+    const next = new Uint8Array(w * H);
+    const nextAge = new Uint16Array(w * H);
+    const keep = Math.min(W, w);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < keep; x++) {
+        next[y * w + x] = cur[y * W + x];
+        nextAge[y * w + x] = age[y * W + x];
+      }
+    }
+    cur = next; age = nextAge;
+    nxt = new Uint8Array(w * H);
+    ghost = new Uint8Array(w * H);
+    W = w;
+    canvas.width = W * CELL;
+    canvas.height = H * CELL;
+  }
+
+  function reset(message: string) {
+    gen = 0; births = 0; deaths = 0;
+    age.fill(0); ghost.fill(0);
+    seen = new Map();
+    stateText = 'Ready';
+    stepInfo.textContent = message;
+  }
+
+  function clear() {
+    cur.fill(0);
+    reset('Cleared. Draw cells or stamp a pattern.');
+  }
+
+  function randomFill() {
+    const d = Number(densityInput.value) / 100;
+    for (let i = 0; i < cur.length; i++) cur[i] = rand() < d ? 1 : 0;
+    reset(`Random soup at ${densityInput.value}% — most of it dies back within a hundred generations.`);
+  }
+
+  function stamp(cx: number, cy: number, name: string) {
+    const map = PATTERNS[name];
+    if (!map) return;
+    const ox = cx - (map[0].length >> 1), oy = cy - (map.length >> 1);
+    for (let r = 0; r < map.length; r++) {
+      for (let c = 0; c < map[r].length; c++) {
+        const x = ox + c, y = oy + r;
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        cur[y * W + x] = map[r][c] === 'O' ? 1 : 0;
+      }
+    }
+    seen = new Map();
+  }
+
+  /** Live neighbours, either with dead space outside or wrapping round. */
+  function neighbours(x: number, y: number, wrapEdges: boolean) {
+    let n = 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        let nx = x + dx, ny = y + dy;
+        if (wrapEdges) {
+          nx = (nx + W) % W; ny = (ny + H) % H;
+        } else if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        n += cur[ny * W + nx];
+      }
+    }
+    return n;
+  }
+
+  function step() {
+    const rule = RULES[ruleSelect.value] ?? RULES.life;
+    const wrapEdges = edgeSelect.value === 'wrap';
+    births = 0; deaths = 0; alive = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        const n = neighbours(x, y, wrapEdges);
+        const live = cur[i] ? rule.survive.includes(n) : rule.born.includes(n);
+        nxt[i] = live ? 1 : 0;
+        if (live) {
+          alive++;
+          age[i] = cur[i] ? Math.min(65535, age[i] + 1) : 0;
+          if (!cur[i]) births++;
+        } else {
+          if (cur[i]) { deaths++; ghost[i] = 200; }
+          age[i] = 0;
+        }
+      }
+    }
+    const t = cur; cur = nxt; nxt = t;
+    gen++;
+    detect();
+  }
+
+  /** FNV-1a over the board; a repeat means the pattern has closed a cycle. */
+  function detect() {
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < cur.length; i++) {
+      hash ^= cur[i];
+      hash = Math.imul(hash, 0x01000193);
+    }
+    if (!alive) {
+      stateText = 'Extinct';
+      stopRun(`Everything died out after ${gen} generations.`);
+      return;
+    }
+    const before = seen.get(hash);
+    if (before !== undefined) {
+      const period = gen - before;
+      stateText = period === 1 ? 'Still life' : `Period ${period}`;
+      if (period === 1) stopRun(`Frozen at generation ${gen}: nothing changes any more.`);
+      else stopRun(`Repeating every ${period} generations from generation ${before}.`);
+      return;
+    }
+    seen.set(hash, gen);
+    if (seen.size > 400) seen.delete(seen.keys().next().value!);
+    stateText = running ? 'Running' : 'Paused';
+  }
+
+  function stopRun(message: string) {
+    running = false;
+    btnRun.textContent = '▶ Run';
+    stepInfo.textContent = message;
+  }
+
+  // ---- Drawing -------------------------------------------------------------
+
+  let drawing: 0 | 1 | null = null;
+
+  function toCell(ev: PointerEvent) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: Math.floor((ev.clientX - rect.left) / rect.width * W),
+      y: Math.floor((ev.clientY - rect.top) / rect.height * H),
+    };
+  }
+
+  canvas.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    canvas.setPointerCapture(ev.pointerId);
+    const { x, y } = toCell(ev);
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    if (patternSelect.value !== 'draw' && ev.button !== 2) {
+      stamp(x, y, patternSelect.value);
+      stepInfo.textContent = `Stamped a ${patternSelect.options[patternSelect.selectedIndex].text.replace('Stamp a ', '')}.`;
+      return;
+    }
+    drawing = ev.button === 2 ? 0 : 1;
+    cur[y * W + x] = drawing;
+    seen = new Map();
+  });
+  canvas.addEventListener('pointermove', (ev) => {
+    if (drawing === null) return;
+    const { x, y } = toCell(ev);
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    cur[y * W + x] = drawing;
+  });
+  const stop = () => { drawing = null; };
+  canvas.addEventListener('pointerup', stop);
+  canvas.addEventListener('pointercancel', stop);
+  canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
+
+  // ---- Skins ---------------------------------------------------------------
+
+  type Skin = { bg: string; grid: string; alive: string; old: string };
+  const SKINS: Record<string, Skin> = {
+    classic: { bg: '#0b1220', grid: '#16233d', alive: '#e2e8f0', old: '#94a3b8' },
+    age:     { bg: '#0b1220', grid: '#16233d', alive: '#22d3ee', old: '#a855f7' },
+    trails:  { bg: '#0b1220', grid: '#16233d', alive: '#f8fafc', old: '#f8fafc' },
+  };
+
+  function ageColour(a: number) {
+    // Log scale: the first few generations matter most, and long-lived cells
+    // all read as "old" rather than climbing forever.
+    const t = Math.min(1, Math.log(1 + a) / Math.log(60));
+    const r = Math.round(34 + (168 - 34) * t);
+    const g = Math.round(211 + (85 - 211) * t);
+    const b = Math.round(238 + (247 - 238) * t);
+    return `rgb(${r} ${g} ${b})`;
+  }
+
+  function render() {
+    const name = skinSelect.value, skin = SKINS[name] ?? SKINS.classic;
+    wrap.style.background = skin.bg;
+    document.getElementById('gol-dot-alive')!.style.background = skin.alive;
+    document.getElementById('gol-dot-old')!.style.background = name === 'age' ? skin.old : skin.alive;
+    document.getElementById('gol-label-old')!.textContent =
+      name === 'age' ? 'Alive a long time' : name === 'trails' ? 'Just died (fading)' : 'Alive';
+
+    ctx.fillStyle = skin.bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.strokeStyle = skin.grid;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = 1; x < W; x++) { ctx.moveTo(x * CELL + 0.5, 0); ctx.lineTo(x * CELL + 0.5, canvas.height); }
+    for (let y = 1; y < H; y++) { ctx.moveTo(0, y * CELL + 0.5); ctx.lineTo(canvas.width, y * CELL + 0.5); }
+    ctx.stroke();
+
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (!cur[i]) {
+          if (name === 'trails' && ghost[i]) {
+            ctx.fillStyle = `rgba(245,158,11,${ghost[i] / 255 * 0.55})`;
+            ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
+            ghost[i] = ghost[i] > 8 ? ghost[i] - 8 : 0;
+          }
+          continue;
+        }
+        ctx.fillStyle = name === 'age' ? ageColour(age[i]) : skin.alive;
+        ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
+      }
+    }
+
+    document.getElementById('gol-stat-gen')!.textContent = String(gen);
+    document.getElementById('gol-stat-alive')!.textContent = alive ? String(alive) : '—';
+    document.getElementById('gol-stat-flux')!.textContent = gen ? `+${births} / −${deaths}` : '—';
+    document.getElementById('gol-stat-state')!.textContent = stateText;
+    document.getElementById('gol-speed-val')!.textContent = `${RATES[Number(speedInput.value) - 1]}/s`;
+    document.getElementById('gol-density-val')!.textContent = `${densityInput.value}%`;
+  }
+
+  function countAlive() {
+    let n = 0;
+    for (let i = 0; i < cur.length; i++) n += cur[i];
+    alive = n;
+  }
+
+  function frame(now: number) {
+    const dt = Math.min(0.25, (now - last) / 1000);
+    last = now;
+    if (running) {
+      carry += dt * RATES[Number(speedInput.value) - 1];
+      let budget = 0;
+      while (carry >= 1 && budget < 60 && running) { step(); carry -= 1; budget++; }
+    } else {
+      carry = 0;
+      countAlive();
+    }
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  btnRun.addEventListener('click', () => {
+    running = !running;
+    btnRun.textContent = running ? '❚❚ Pause' : '▶ Run';
+    stateText = running ? 'Running' : 'Paused';
+    if (running) stepInfo.textContent = '';
+  });
+  document.getElementById('gol-step')!.addEventListener('click', () => {
+    running = false;
+    btnRun.textContent = '▶ Run';
+    step();
+  });
+  document.getElementById('gol-random')!.addEventListener('click', randomFill);
+  document.getElementById('gol-clear')!.addEventListener('click', clear);
+  [ruleSelect, edgeSelect].forEach((el) => el.addEventListener('change', () => { seen = new Map(); }));
+
+  // The rAF loop repaints every frame, so a resize only reallocates the board,
+  // keeping the cells that still fit.
+  window.addEventListener('resize', () => {
+    const w = Math.floor(wrap.clientWidth / CELL);
+    if (w !== W) allocate(w);
+  });
+
+  const params = new URLSearchParams(location.search);
+  for (const [key, select] of [['skin', skinSelect], ['rule', ruleSelect], ['edges', edgeSelect]] as const) {
+    const v = params.get(key);
+    if (v && [...select.options].some((o) => o.value === v)) select.value = v;
+  }
+
+  allocate(Math.floor(wrap.clientWidth / CELL));
+  const startPattern = params.get('pattern');
+  if (startPattern && PATTERNS[startPattern]) {
+    stamp(startPattern === 'gun' ? 22 : W >> 1, startPattern === 'gun' ? 8 : H >> 1, startPattern);
+  } else {
+    randomFill();
+  }
+  countAlive();
+
+  if (THUMB) {
+    const gens = Number(params.get('gens')) || 0;
+    for (let k = 0; k < gens; k++) step();
+  }
+
+  requestAnimationFrame(frame);
+</script>

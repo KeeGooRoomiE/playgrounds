@@ -6,6 +6,11 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.10.0] — 2026-09-16
+
+### Added
+- **Conway's Game of Life** playground, at the `game-of-life` slug the Sandbox page already links to. Deliberately finite: an `Edges` switch runs the board with dead space outside or as a torus, and the copy uses the difference. Draw cells or stamp patterns (glider, LWSS, blinker, toad, pulsar, Gosper glider gun, R-pentomino, acorn), switch between Life, HighLife and Day & Night, and watch a hash-based detector announce still lifes, oscillator periods and extinction. Three skins: Classic, Age (colour by how long a cell has lived) and Trails.
+
 ## [0.9.0] — 2026-09-15
 
 ### Added

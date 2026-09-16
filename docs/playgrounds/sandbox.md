@@ -2,12 +2,10 @@
 
 **Source repo:** none — written directly in the hub. DOM ids are `sb-` prefixed.
 
-## Pending link
+## Links out
 
-The body links to `../game-of-life/` (Conway's Game of Life) before that page
-exists — the user asked for the link now so it isn't forgotten, and will add the
-playground in the next iteration. **Create it with the slug `game-of-life`**, or
-update the link here.
+The body links to `../game-of-life/` (Conway's Game of Life), which now exists —
+the link was written before that playground, at the user's request.
 
 Relative links (`../perlin-noise/`, `../game-of-life/`) resolve correctly both
 locally (`/sandbox/`) and under the GitHub Pages base path
