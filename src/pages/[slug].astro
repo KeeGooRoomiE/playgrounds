@@ -27,6 +27,24 @@ const { Content } = await render(entry);
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const Island = islands[entry.data.island];
 const Background = entry.data.background ? backgrounds[entry.data.background] : undefined;
+
+const siteUrl = (Astro.site?.toString() ?? 'http://localhost:4321/').replace(/\/$/, '');
+const pageUrl = `${siteUrl}${Astro.url.pathname}`;
+// Marked up as learning material, not an article: it's a thing you use.
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'LearningResource',
+  name: entry.data.title,
+  description: entry.data.description,
+  url: pageUrl,
+  image: `${siteUrl}${base}${entry.data.thumbnail}`,
+  learningResourceType: 'interactive simulation',
+  isAccessibleForFree: true,
+  inLanguage: 'en',
+  keywords: entry.data.tags.join(', '),
+  author: { '@type': 'Person', name: 'KeeGooRoomiE', url: 'https://github.com/KeeGooRoomiE' },
+  isPartOf: { '@type': 'WebSite', name: 'Playgrounds', url: `${siteUrl}${base}/` },
+};
 ---
 
 <Layout
@@ -34,6 +52,7 @@ const Background = entry.data.background ? backgrounds[entry.data.background] : 
   description={entry.data.description}
   ogImage={entry.data.thumbnail}
   background={Background}
+  jsonLd={jsonLd}
 >
   <div class="container page">
     <!-- The page's only navigation: one way out, back to the index. -->

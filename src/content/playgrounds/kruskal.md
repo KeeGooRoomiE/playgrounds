@@ -5,6 +5,7 @@ tags: [procedural, graph]
 category: graph
 description: The minimum spanning tree algorithm, run as a maze generator — sort every edge, keep the ones that join two separate pieces, reject the ones that would close a loop.
 thumbnail: /thumbnails/kruskal.png
+thumbnailAlt: "A maze rendered as city streets: grey blocks, dark road corridors and yellow centre-line markings."
 island: kruskal
 thumbnailQuery: "skin=city"
 ---

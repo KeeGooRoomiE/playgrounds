@@ -9,11 +9,14 @@ const { entry } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = `${base}/${entry.id}/`;
 const thumbSrc = `${base}${entry.data.thumbnail.startsWith('/') ? entry.data.thumbnail : `/${entry.data.thumbnail}`}`;
+// Falls back to the title so a new entry is never silently invisible to image
+// search; `thumbnailAlt` is where the real description belongs.
+const thumbAlt = entry.data.thumbnailAlt ?? `${entry.data.title} playground`;
 ---
 
 <a class="card pg-card" href={href} data-tags={entry.data.tags.join(',')}>
   <div class="pg-card__media">
-    <img src={thumbSrc} alt="" loading="lazy" />
+    <img src={thumbSrc} alt={thumbAlt} loading="lazy" />
   </div>
   <div class="pg-card__title">{entry.data.title}</div>
   <p class="pg-card__desc">{entry.data.description}</p>

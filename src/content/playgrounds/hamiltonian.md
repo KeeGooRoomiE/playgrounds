@@ -5,6 +5,7 @@ tags: [graph, backtracking]
 category: graph
 description: Visit every cell exactly once — the puzzle behind a perfect game of Snake, solved by backtracking and, surprisingly often, settled by colouring a chessboard.
 thumbnail: /thumbnails/hamiltonian.png
+thumbnailAlt: "A snake filling an 8x8 board, its body shading from dark green at the head to pale green at the tail, weaving around grey blocks."
 island: hamiltonian
 ---
 

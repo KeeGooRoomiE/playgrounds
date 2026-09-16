@@ -15,6 +15,12 @@ interface Props {
   description?: string;
   ogImage?: string;
   background?: any;
+  /**
+   * Schema.org data for this page, rendered as JSON-LD. Invisible to readers;
+   * it's how a search engine learns that these pages are interactive learning
+   * material rather than a product landing page.
+   */
+  jsonLd?: unknown;
 }
 
 const {
@@ -22,6 +28,7 @@ const {
   description = 'Interactive algorithm playgrounds — learn by tweaking, not just reading.',
   ogImage,
   background: Background = DefaultBackground,
+  jsonLd,
 } = Astro.props;
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -54,6 +61,8 @@ const pageTitle = title === 'Playgrounds' ? title : `${title} — Playgrounds`;
     <meta name="twitter:image" content={metaImage} />
 
     <link rel="icon" href={`${base}/favicon.svg`} type="image/svg+xml" />
+
+    {jsonLd && <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} is:inline />}
   </head>
   <body>
     <Background />

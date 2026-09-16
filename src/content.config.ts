@@ -14,6 +14,10 @@ const playgrounds = defineCollection({
     category: z.string(),
     description: z.string(),
     thumbnail: z.string(),
+    // What the thumbnail actually shows, for screen readers and image search.
+    // Describe the picture, not the playground: "a snake filling an 8x8 board",
+    // not "Hamiltonian path preview".
+    thumbnailAlt: z.string().optional(),
     // Only for playgrounds migrated from their own standalone repo — the
     // detail page prints "Originally built as a standalone project" next to
     // it, which is false for one written here. Omit it in that case.

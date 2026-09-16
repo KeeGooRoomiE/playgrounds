@@ -5,6 +5,7 @@ tags: [simulation, emergence, cellular-automaton]
 category: simulation
 description: A literal sandbox — pour and erase grains that follow one falling-sand rule, and watch dunes, slopes and avalanches appear.
 thumbnail: /thumbnails/sandbox.png
+thumbnailAlt: "A pale dune of pixel sand settled along the bottom of a sky-blue frame."
 island: sandbox
 thumbnailQuery: "seed=42&skin=desert&threshold=0.61&frames=150"
 ---

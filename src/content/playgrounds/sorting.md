@@ -5,6 +5,7 @@ tags: [sorting]
 category: sorting
 description: Five ways to put a hand of cards in order — insertion, merge, quick, heap and radix sort — played out on pixel-art cards, with every comparison and move on show.
 thumbnail: /thumbnails/sorting.png
+thumbnailAlt: "Five pixel-art playing cards on green felt; the six of clubs is outlined amber as it is compared against the violet-outlined nine of clubs pivot."
 island: sorting
 thumbnailQuery: "seed=42&alg=quick&deal=shuffled&key=rank&cards=5&order=0&steps=3"
 ---

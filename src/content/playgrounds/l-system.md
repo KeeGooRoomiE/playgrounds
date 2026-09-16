@@ -5,6 +5,7 @@ tags: [fractal, procedural, recursion]
 category: fractal
 description: Lindenmayer's recursive rewriting rules — a handful of symbols that expand into trees, ferns, and coral-like branching structures.
 thumbnail: /thumbnails/l-system.png
+thumbnailAlt: "A thin brown fractal plant grown by an L-system, branching from a single vertical stem."
 sourceRepo: https://github.com/KeeGooRoomiE/l-system-playground
 island: l-system
 ---

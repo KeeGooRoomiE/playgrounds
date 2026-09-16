@@ -5,6 +5,7 @@ tags: [noise, procedural]
 category: noise
 description: Ken Perlin's gradient noise function — the algorithm behind Minecraft terrain, cloud textures, and organic motion.
 thumbnail: /thumbnails/perlin-noise.png
+thumbnailAlt: "A 3D landscape of Perlin noise drawn as a grid of quads, coloured in vivid blues, greens and magentas."
 sourceRepo: https://github.com/KeeGooRoomiE/perlin-noise-playground
 island: perlin-noise
 thumbnailQuery: "view=3d&palette=random&octaves=3&scale=33&amplitude=50"

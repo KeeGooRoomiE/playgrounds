@@ -5,6 +5,7 @@ tags: [simulation, behavior, emergence]
 category: simulation
 description: Craig Reynolds' 1986 flocking model — three simple local rules per agent produce coordinated group motion with no leader and no shared state.
 thumbnail: /thumbnails/boids.png
+thumbnailAlt: "Two dozen bacteria-shaped boids with trailing flagella, drifting in loose groups across a pale beige field."
 sourceRepo: https://github.com/KeeGooRoomiE/boids-playground
 island: boids
 ---

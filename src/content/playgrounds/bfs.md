@@ -5,6 +5,7 @@ tags: [pathfinding, graph]
 category: graph
 description: The queue-based traversal that expands a maze layer by layer — guaranteed shortest path on unweighted graphs, no heuristics required.
 thumbnail: /thumbnails/bfs.png
+thumbnailAlt: "A dark maze with every explored cell shaded pale blue and a single orange shortest path running from S to E."
 sourceRepo: https://github.com/KeeGooRoomiE/bfs-pathfinding-playground
 island: bfs
 # bfs and dfs share the same maze carver — without distinct seeds here they'd

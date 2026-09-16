@@ -6,6 +6,16 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.11.0] — 2026-09-16
+
+### Added
+- Index page opens with a **Start here** block: three doors chosen for what happens in the first five seconds without reading (pour sand, grow a tree, recognise Perlin noise in the Minecraft palette), plus a line on the shape every page follows and a line on who made this and why.
+- JSON-LD on every page — `WebSite` + `ItemList` on the index, `LearningResource` per playground. Invisible to readers; it tells a search engine these are interactive learning materials rather than a product page.
+- `thumbnailAlt` frontmatter field, filled in for all thirteen playgrounds. Card images had `alt=""`, which kept them out of image search entirely.
+
+### Fixed
+- `robots.txt` pointed at a sitemap under the repository's old name (`playgrounds-lab`), so the URL 404'd. It is now generated from the build config (`src/pages/robots.txt.ts`) instead of being a static file that can go stale. The sitemap itself was always correct.
+
 ## [0.10.0] — 2026-09-16
 
 ### Added

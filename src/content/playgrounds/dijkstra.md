@@ -5,6 +5,7 @@ tags: [pathfinding, graph, weighted]
 category: graph
 description: The priority-queue generalization of BFS to weighted graphs — finds the cheapest path, not the shortest one, by always expanding the least-costly frontier node first.
 thumbnail: /thumbnails/dijkstra.png
+thumbnailAlt: "A grid of green, yellow and blue terrain tiles with an orange cheapest path threading from S to E along the top."
 sourceRepo: https://github.com/KeeGooRoomiE/dijkstra-playground
 island: dijkstra
 ---

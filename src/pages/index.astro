@@ -10,9 +10,61 @@ const entries = (await getCollection('playgrounds')).sort((a, b) => {
 });
 
 const allTags = [...new Set(entries.flatMap((e) => e.data.tags))].sort();
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const siteUrl = (Astro.site?.toString() ?? 'http://localhost:4321/').replace(/\/$/, '');
+
+// Three ways in, chosen for what happens in the first five seconds without
+// reading anything: something physical, something that grows by itself, and
+// something the visitor already recognises.
+const doors = [
+  {
+    href: `${base}/sandbox/`,
+    label: 'Get your hands dirty',
+    blurb: 'Pour sand and dig it out again. Every grain follows one rule about the three cells below it — that is the whole simulation.',
+  },
+  {
+    href: `${base}/brownian-tree/`,
+    label: 'Watch something grow',
+    blurb: 'Press one button. Particles wander at random, stick where they touch, and a coral builds itself out of pure chance.',
+  },
+  {
+    href: `${base}/perlin-noise/?palette=minecraft`,
+    label: 'Recognise it first',
+    blurb: 'The noise function behind a thousand game worlds, in the palette you already know it from.',
+  },
+];
+
+const jsonLd = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'Playgrounds',
+    url: `${siteUrl}${base}/`,
+    description: 'A place to poke algorithms until they reveal how they work.',
+    inLanguage: 'en',
+    author: { '@type': 'Person', name: 'KeeGooRoomiE', url: 'https://github.com/KeeGooRoomiE' },
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'Interactive algorithm playgrounds',
+    numberOfItems: entries.length,
+    itemListElement: entries.map((entry, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: entry.data.title,
+      url: `${siteUrl}${base}/${entry.id}/`,
+    })),
+  },
+];
 ---
 
-<Layout title="Playgrounds" description="A place to poke algorithms until they reveal how they work.">
+<Layout
+  title="Playgrounds"
+  description="A place to poke algorithms until they reveal how they work."
+  jsonLd={jsonLd}
+>
   <div class="index-shell">
     <!-- The page proper: hero, filter and cards all share one left edge. -->
     <div class="index-body">
@@ -32,8 +84,32 @@ const allTags = [...new Set(entries.flatMap((e) => e.data.tags))].sort();
             Every playground is a tiny lab: part explanation, part simulation, part toy. No account, no setup —
             pick one and start messing with it.
           </p>
+          <p>
+            Nearly all of them tell the same story from a different angle: a short local rule, applied over and
+            over, turning into something nobody wrote down — a maze, a coral, a sand dune, a shortest path.
+          </p>
+          <p class="hero-who">
+            Built by one person, in the open, mostly to understand these things properly — explaining something
+            you can actually turn the knobs on is the fastest way to find out what you only half knew.
+          </p>
         </div>
       </div>
+
+      <section class="start-here" aria-labelledby="start-here-title">
+        <h2 id="start-here-title">Start here</h2>
+        <div class="doors">
+          {doors.map((door) => (
+            <a class="door" href={door.href}>
+              <span class="door__label">{door.label}</span>
+              <span class="door__blurb">{door.blurb}</span>
+            </a>
+          ))}
+        </div>
+        <p class="start-note">
+          Every page has the same shape: what the thing is, how it works, the ideas worth keeping, where it turns
+          up in the real world — and the playground itself, which you can start turning before reading a word.
+        </p>
+      </section>
 
       {allTags.length > 0 && (
         <div class="tags" id="tag-filter" role="group" aria-label="Filter by tag">
@@ -58,6 +134,42 @@ const allTags = [...new Set(entries.flatMap((e) => e.data.tags))].sort();
 </Layout>
 
 <style>
+  .hero-who { color: var(--muted); }
+
+  .start-here { margin: 8px 0 28px; }
+  .start-here h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+  .doors {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .door {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    background: var(--card-bg);
+    text-decoration: none;
+    color: inherit;
+    transition: border-color var(--t), transform var(--t);
+  }
+  .door:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .door__label { font-weight: 600; color: var(--accent); }
+  .door__blurb { font-size: 14px; color: var(--muted); line-height: 1.5; }
+  .start-note { font-size: 14px; color: var(--muted); margin: 14px 0 0; }
+
+  @media (max-width: 760px) {
+    .doors { grid-template-columns: 1fr; }
+  }
+
   /* Wider than .container on purpose: the nav column lives in the margin
      outside the reading width, so the body below keeps a normal measure and
      the nav never eats into it. */

@@ -5,6 +5,7 @@ tags: [pathfinding, graph]
 category: graph
 description: The stack-based traversal that dives as deep as possible before backtracking — finds a path, not necessarily the shortest one.
 thumbnail: /thumbnails/dfs.png
+thumbnailAlt: "A maze where a long orange trail wanders through most corridors, with a pink path marking the route that reached E."
 sourceRepo: https://github.com/KeeGooRoomiE/dfs-pathfinding-playground
 island: dfs
 # bfs and dfs share the same maze carver — without distinct seeds here they'd

@@ -5,6 +5,7 @@ tags: [procedural, sampling, simulation]
 category: sampling
 description: A parametric sampler on a shaped polar distribution — two power-law transforms turn uniform randomness into spiral galaxies, asteroid fields, or root systems.
 thumbnail: /thumbnails/galaxy-sampler.png
+thumbnailAlt: "A dense cluster of sampled stars glowing at the centre of a dark blue starfield."
 sourceRepo: https://github.com/KeeGooRoomiE/galaxy-sampler-playground
 island: galaxy-sampler
 ---

@@ -5,6 +5,7 @@ tags: [simulation, cellular-automaton, emergence]
 category: simulation
 description: Four rules, no players, and a board that runs itself — the cellular automaton that grew into a field of study, played here on a finite board with edges that matter.
 thumbnail: /thumbnails/game-of-life.png
+thumbnailAlt: "A Gosper glider gun at the top left of a dark grid, with a diagonal stream of cyan gliders trailing to the lower right."
 island: game-of-life
 thumbnailQuery: "seed=42&pattern=gun&gens=160&skin=age"
 ---

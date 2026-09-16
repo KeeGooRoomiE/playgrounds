@@ -5,6 +5,7 @@ tags: [fractal, simulation, emergence]
 category: fractal
 description: Particles wander at random and stick where they touch — and out of pure chance grows a branching fractal, the same shape as lightning, frost and mineral dendrites.
 thumbnail: /thumbnails/brownian-tree.png
+thumbnailAlt: "Five densely branched Brownian trees with white trunks fading to violet twigs, grown on black."
 island: brownian-tree
 thumbnailQuery: "seed=42&skin=lichtenberg&seedShape=multi&colour=weight"
 ---
