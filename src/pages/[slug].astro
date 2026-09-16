@@ -61,14 +61,24 @@ const jsonLd = {
     <div class="hero">
       <h1>{entry.data.title}</h1>
       <p class="hero-subtitle">{entry.data.description}</p>
+      <!-- The write-up runs several screens on a phone, so there's a way to
+           reach the interactive part without reading any of it first. A plain
+           anchor: no JS, and smooth scrolling is already global (and disabled
+           under prefers-reduced-motion). -->
+      <a class="btn primary try-link" href="#try-it">▶ Try it out</a>
     </div>
 
     <!-- Body: What Is X / How It Works / ... — every prose section from the
          content entry, in full, before the interactive part. -->
     <Content />
 
-    <!-- The playground itself comes last, after the write-up. -->
-    {Island && <Island />}
+    <!-- The playground itself comes last, after the write-up. `tabindex` so a
+         keyboard jump from the hero lands focus here, not back at the top.
+         The id is deliberately not "playground": rehype gives the body's
+         "## Playground" heading that id, and the duplicate won the jump. -->
+    <div id="try-it" class="playground-anchor" tabindex="-1">
+      {Island && <Island />}
+    </div>
 
     {entry.data.sourceRepo && (
       <p class="info-box">
@@ -83,6 +93,17 @@ const jsonLd = {
 </Layout>
 
 <style>
+  .try-link {
+    margin-top: 14px;
+    text-decoration: none;
+  }
+
+  .playground-anchor {
+    /* Room above the canvas when the anchor jump lands. */
+    scroll-margin-top: 16px;
+  }
+  .playground-anchor:focus { outline: none; }
+
   .back-link {
     display: inline-block;
     margin-bottom: 8px;

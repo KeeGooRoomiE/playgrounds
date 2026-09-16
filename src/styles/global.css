@@ -293,6 +293,10 @@ canvas { display: block; width: 100%; height: 600px; background: #fff; }
 
 @media (max-width: 960px) {
   .playground { grid-template-columns: 1fr; }
+  /* Stacked on a phone, the thing itself goes above its knobs: you scroll to a
+     playground to look at it, not to read a control panel. Also what makes the
+     "Try it out" anchor land on something worth seeing. */
+  .playground > .controls { order: 2; }
   .controls { order: -1; }
 }
 
