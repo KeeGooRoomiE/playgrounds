@@ -11,6 +11,7 @@ import BrownianTree from './BrownianTree.astro';
 import Sorting from './Sorting.astro';
 import Sandbox from './Sandbox.astro';
 import GameOfLife from './GameOfLife.astro';
+import AStar from './AStar.astro';
 
 export const islands: Record<string, any> = {
   'perlin-noise': PerlinNoise,
@@ -26,4 +27,5 @@ export const islands: Record<string, any> = {
   sorting: Sorting,
   sandbox: Sandbox,
   'game-of-life': GameOfLife,
+  'a-star': AStar,
 };

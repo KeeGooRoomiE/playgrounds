@@ -1,0 +1,627 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Map</div>
+      <select id="as-map">
+        <option value="terrain">Terrain — same generator as Dijkstra</option>
+        <option value="maze">Maze — same generator as BFS</option>
+      </select>
+    </div>
+
+    <div>
+      <div class="ctrl-label">Brush</div>
+      <div class="as-terrain-btns">
+        <button type="button" class="as-terrain-btn active" data-terrain="road" style="background:#fef9c3;border-color:#ca8a04">🟡 Road ×1</button>
+        <button type="button" class="as-terrain-btn" data-terrain="plains" style="background:#dcfce7;">🟢 Plains ×2</button>
+        <button type="button" class="as-terrain-btn" data-terrain="forest" style="background:#bbf7d0;">🌲 Forest ×4</button>
+        <button type="button" class="as-terrain-btn" data-terrain="water" style="background:#bfdbfe;">🌊 Water ×8</button>
+        <button type="button" class="as-terrain-btn" data-terrain="wall" style="background:#1e293b;color:#fff;">⬛ Wall</button>
+        <button type="button" class="as-terrain-btn" data-terrain="start" style="background:#22c55e;color:#fff;">S Start</button>
+        <button type="button" class="as-terrain-btn" data-terrain="end" style="background:#ef4444;color:#fff;">E End</button>
+        <button type="button" class="as-terrain-btn" data-terrain="erase" style="background:#f1f5f9;">⌫ Erase</button>
+      </div>
+    </div>
+
+    <div>
+      <button type="button" class="btn" id="as-generate">🎲 Generate map</button>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="range-value"><span class="range-label">Heuristic weight</span><span class="range-number" id="as-weight-val">1</span></div>
+      <input type="range" id="as-weight" min="0" max="5" value="1" step="0.25" />
+      <div style="font-size:11px;color:var(--muted);margin-top:2px" id="as-weight-note">1 — A*: optimal, and guided</div>
+      <div class="ctrl-label" style="margin-top:10px">Heuristic</div>
+      <select id="as-heuristic">
+        <option value="manhattan">Manhattan distance</option>
+        <option value="euclidean">Straight-line distance</option>
+      </select>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Mode</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="toggle-row">
+          <span class="toggle-label">Animate search</span>
+          <label class="toggle"><input type="checkbox" id="as-toggle-animate" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Step-by-step (165ms)</span>
+          <label class="toggle"><input type="checkbox" id="as-toggle-step" /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Show f = g + w·h</span>
+          <label class="toggle"><input type="checkbox" id="as-toggle-f" /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Compare with Dijkstra</span>
+          <label class="toggle"><input type="checkbox" id="as-toggle-compare" checked /><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="as-run">▶ Run A*</button>
+      <button type="button" class="btn" id="as-step" disabled>→ Next step</button>
+      <button type="button" class="btn" id="as-clear">Clear path</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Cells expanded</span><span class="stat-val" id="as-stat-expanded">—</span></div>
+      <div class="stat-row"><span>Dijkstra expands</span><span class="stat-val" id="as-stat-dijkstra">—</span></div>
+      <div class="stat-row"><span>Path cost</span><span class="stat-val" id="as-stat-cost">—</span></div>
+      <div class="stat-row"><span>Cheapest possible</span><span class="stat-val" id="as-stat-optimal">—</span></div>
+      <div class="stat-row"><span>Status</span><span class="stat-val" id="as-stat-status">Ready</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Legend</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#fef08a"></span> Road 1 · <span class="legend-dot" style="background:#86efac"></span> Plains 2</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#4ade80"></span> Forest 4 · <span class="legend-dot" style="background:#93c5fd"></span> Water 8</div>
+      <div class="legend-item"><span class="legend-dot" style="background:rgba(79,70,229,0.5)"></span> Expanded by A*</div>
+      <div class="legend-item"><span class="legend-dot" style="background:rgba(79,70,229,0.85)"></span> Frontier (in the queue)</div>
+      <div class="legend-item"><span class="legend-dot as-ghost-dot"></span> Dijkstra would expand, A* didn't</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Path found</div>
+      <div class="legend-item"><span class="legend-dot" style="background:none;border:2px dashed #b91c1c"></span> Cheapest path, when different</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap">
+      <canvas id="as-canvas"></canvas>
+    </div>
+    <div class="step-info" id="as-step-info"></div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  /* Same reason as Dijkstra: the grid is sized from wrap.clientWidth, so the
+     canvas must not prop its own wrapper open on a shrink. */
+  canvas { width: auto; height: auto; display: block; cursor: crosshair; max-width: 100%; touch-action: none; }
+  .legend-dot { border-radius: 2px; width: 14px; height: 14px; }
+  .as-ghost-dot { background: repeating-linear-gradient(45deg, rgba(15,23,42,0.35) 0 2px, transparent 2px 5px); }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+  .as-terrain-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  .as-terrain-btn {
+    padding: 7px 6px; background: transparent; color: #1a1a1a;
+    border: 2px solid var(--border-2); border-radius: 4px; cursor: pointer;
+    font-size: 11px; font-weight: 600; text-align: center; margin-bottom: 0;
+  }
+  .as-terrain-btn.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+</style>
+
+<script>
+  import { getRandom, isThumbnailMode } from '../lib/seed';
+
+  const rand = getRandom();
+  const canvas = document.getElementById('as-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const mapSelect = document.getElementById('as-map') as HTMLSelectElement;
+  // Cell sizes follow the page each generator comes from, so a seeded map is
+  // the same map here as there: 24px for Dijkstra's terrain, 20px for BFS's maze.
+  let CELL = 24;
+  let COLS = 0, ROWS = 0;
+  let grid: string[][] = [];
+  let startCell: { r: number; c: number } | null = null;
+  let endCell: { r: number; c: number } | null = null;
+
+  const TERRAIN: Record<string, { cost: number; color: string }> = {
+    empty: { cost: 1, color: '#f8fafc' },
+    road: { cost: 1, color: '#fef08a' },
+    plains: { cost: 2, color: '#86efac' },
+    forest: { cost: 4, color: '#4ade80' },
+    water: { cost: 8, color: '#93c5fd' },
+    wall: { cost: Infinity, color: '#1e293b' },
+  };
+  const PATH_COLOR = '#f59e0b';
+  const EXPANDED = 'rgba(79,70,229,0.5)';
+  const FRONTIER = 'rgba(79,70,229,0.85)';
+  const GRID_LINE = '#e2e8f0';
+
+  // Per-cell overlay: 0 none, 4 expanded, 6 frontier, 5 path.
+  let overlay: Uint8Array = new Uint8Array(0);
+  let fShown: Float64Array = new Float64Array(0);
+  let reference: { expanded: Uint8Array; count: number; path: number[]; cost: number } | null = null;
+  let finalPath: number[] = [];
+
+  let search: Generator<StepEvent, SearchResult> | null = null;
+  let running = false;
+  let expandedCount = 0;
+  let animIds: ReturnType<typeof setTimeout>[] = [];
+  let autoStepId: ReturnType<typeof setTimeout> | null = null;
+  let drawMode = 'road';
+  let painting = false;
+
+  const $ = (id: string) => document.getElementById(id)!;
+  const stepInfo = $('as-step-info');
+  const btnStep = $('as-step') as HTMLButtonElement;
+  const weightInput = $('as-weight') as HTMLInputElement;
+  const heuristicSelect = $('as-heuristic') as HTMLSelectElement;
+  const toggleAnimate = $('as-toggle-animate') as HTMLInputElement;
+  const toggleStep = $('as-toggle-step') as HTMLInputElement;
+  const toggleF = $('as-toggle-f') as HTMLInputElement;
+  const toggleCompare = $('as-toggle-compare') as HTMLInputElement;
+
+  // ---- Maps: copied from Dijkstra.astro and Bfs.astro, rand() calls in the same order ----
+
+  function init() {
+    CELL = mapSelect.value === 'maze' ? 20 : 24;
+    const wrap = canvas.parentElement!;
+    COLS = Math.floor(wrap.clientWidth / CELL);
+    ROWS = Math.floor(520 / CELL);
+    canvas.width = COLS * CELL;
+    canvas.height = ROWS * CELL;
+    grid = Array.from({ length: ROWS }, () => Array(COLS).fill('empty'));
+    startCell = { r: Math.floor(ROWS / 2), c: 1 };
+    endCell = { r: Math.floor(ROWS / 2), c: COLS - 2 };
+    grid[startCell.r][startCell.c] = 'start';
+    grid[endCell.r][endCell.c] = 'end';
+    resetOverlay();
+    render();
+  }
+
+  function generateTerrain() {
+    const terrainTypes = ['road', 'road', 'road', 'plains', 'plains', 'forest', 'forest', 'water'];
+    grid = Array.from({ length: ROWS }, () =>
+      Array.from({ length: COLS }, () => terrainTypes[Math.floor(rand() * terrainTypes.length)]));
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (rand() < 0.12) grid[r][c] = 'wall';
+    if (startCell) grid[startCell.r][startCell.c] = 'empty';
+    if (endCell) grid[endCell.r][endCell.c] = 'empty';
+  }
+
+  function generateMaze() {
+    grid = Array.from({ length: ROWS }, () => Array(COLS).fill('wall'));
+    function carve(r: number, c: number) {
+      const dirs = [[0, 2], [2, 0], [0, -2], [-2, 0]].sort(() => rand() - 0.5);
+      grid[r][c] = 'empty';
+      for (const [dr, dc] of dirs) {
+        const nr = r + dr, nc = c + dc;
+        if (nr > 0 && nr < ROWS - 1 && nc > 0 && nc < COLS - 1 && grid[nr][nc] === 'wall') {
+          grid[r + dr / 2][c + dc / 2] = 'empty';
+          carve(nr, nc);
+        }
+      }
+    }
+    const sr = 1 + 2 * Math.floor(rand() * Math.floor((ROWS - 1) / 2));
+    const sc = 1 + 2 * Math.floor(rand() * Math.floor((COLS - 1) / 2));
+    carve(sr, sc);
+    if (startCell) grid[startCell.r][startCell.c] = 'empty';
+    if (endCell) grid[endCell.r][endCell.c] = 'empty';
+  }
+
+  function generateMap() {
+    cancelRun();
+    if (mapSelect.value === 'maze') generateMaze();
+    else generateTerrain();
+    startCell = findOpenSide('left');
+    endCell = findOpenSide('right');
+    grid[startCell.r][startCell.c] = 'start';
+    grid[endCell.r][endCell.c] = 'end';
+    resetOverlay();
+    resetStats();
+    render();
+  }
+
+  function findOpenSide(side: 'left' | 'right') {
+    const colRange = side === 'left'
+      ? Array.from({ length: Math.floor(COLS / 2) }, (_, i) => i + 1)
+      : Array.from({ length: Math.floor(COLS / 2) }, (_, i) => COLS - 2 - i);
+    for (const c of colRange) for (let r = 1; r < ROWS - 1; r++) if (grid[r][c] !== 'wall') return { r, c };
+    for (let r = 1; r < ROWS - 1; r++) for (let c = 1; c < COLS - 1; c++) if (grid[r][c] !== 'wall') return { r, c };
+    return { r: 1, c: side === 'left' ? 1 : COLS - 2 };
+  }
+
+  // ---- Search ------------------------------------------------------------
+
+  type StepEvent = { cell: number; g: number; f: number; pushed: number[]; queue: number };
+  type SearchResult = { path: number[]; cost: number };
+
+  const idx = (r: number, c: number) => r * COLS + c;
+
+  function cellCost(i: number) {
+    const t = grid[Math.floor(i / COLS)][i % COLS];
+    if (t === 'start' || t === 'end' || t === 'empty') return 1;
+    return TERRAIN[t] ? TERRAIN[t].cost : 1;
+  }
+
+  /** Distance to the goal in cells. The cheapest terrain costs 1, so it never overestimates. */
+  function heuristic(i: number, kind: string) {
+    const dr = Math.abs(Math.floor(i / COLS) - endCell!.r), dc = Math.abs(i % COLS - endCell!.c);
+    return kind === 'euclidean' ? Math.hypot(dr, dc) : dr + dc;
+  }
+
+  function neighbors(i: number) {
+    const r = Math.floor(i / COLS), c = i % COLS, out: number[] = [];
+    for (const [dr, dc] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
+      const nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS && grid[nr][nc] !== 'wall') out.push(idx(nr, nc));
+    }
+    return out;
+  }
+
+  /**
+   * One expansion per yield. f = g + w·h; at w = 0 it's exactly Dijkstra —
+   * same neighbour order, same stable sort on the queue — so the counts match
+   * the Dijkstra page on the same map. Ties on f prefer the larger g (the node
+   * nearer the goal), which changes nothing when w = 0.
+   */
+  function* astar(weight: number, kind: string): Generator<StepEvent, SearchResult> {
+    const s = idx(startCell!.r, startCell!.c), e = idx(endCell!.r, endCell!.c);
+    const n = ROWS * COLS;
+    const best = new Float64Array(n).fill(Infinity);
+    const parent = new Int32Array(n).fill(-1);
+    const done = new Uint8Array(n);
+    best[s] = 0;
+    const queue: number[][] = [[weight * heuristic(s, kind), 0, s]];
+    while (queue.length) {
+      queue.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+      const [f, g, i] = queue.shift()!;
+      if (done[i]) continue;
+      done[i] = 1;
+      if (i === e) {
+        const path = [i];
+        let k = i;
+        while (parent[k] !== -1) { k = parent[k]; path.unshift(k); }
+        yield { cell: i, g, f, pushed: [], queue: queue.length };
+        return { path, cost: g };
+      }
+      const pushed: number[] = [];
+      for (const nb of neighbors(i)) {
+        if (done[nb]) continue;
+        const ng = g + cellCost(nb);
+        if (ng < best[nb]) {
+          best[nb] = ng;
+          parent[nb] = i;
+          queue.push([ng + weight * heuristic(nb, kind), ng, nb]);
+          pushed.push(nb);
+        }
+      }
+      yield { cell: i, g, f, pushed, queue: queue.length };
+    }
+    return { path: [], cost: Infinity };
+  }
+
+  function runToEnd(weight: number, kind: string) {
+    const gen = astar(weight, kind);
+    const expanded = new Uint8Array(ROWS * COLS);
+    let count = 0;
+    for (;;) {
+      const r = gen.next();
+      if (r.done) {
+        const res = r.value as SearchResult;
+        return { expanded, count, path: res.path, cost: res.cost };
+      }
+      const ev = r.value as StepEvent;
+      if (ev.cell !== idx(startCell!.r, startCell!.c)) { expanded[ev.cell] = 1; count++; }
+    }
+  }
+
+  // ---- Run control -------------------------------------------------------
+
+  function weight() { return Number(weightInput.value); }
+
+  function cancelRun() {
+    animIds.forEach(clearTimeout); animIds = [];
+    if (autoStepId) { clearTimeout(autoStepId); autoStepId = null; }
+    search = null; running = false;
+    btnStep.disabled = true;
+  }
+
+  function resetOverlay() {
+    overlay = new Uint8Array(ROWS * COLS);
+    fShown = new Float64Array(ROWS * COLS);
+    reference = null; finalPath = []; expandedCount = 0;
+  }
+
+  function clearPath() {
+    cancelRun();
+    resetOverlay();
+    resetStats();
+    stepInfo.textContent = '';
+    render();
+  }
+
+  function resetStats() {
+    ['expanded', 'dijkstra', 'cost', 'optimal'].forEach((k) => { $(`as-stat-${k}`).textContent = '—'; });
+    $('as-stat-status').textContent = 'Ready';
+  }
+
+  function applyEvent(ev: StepEvent) {
+    const s = idx(startCell!.r, startCell!.c);
+    if (ev.cell !== s) { overlay[ev.cell] = 4; expandedCount++; }
+    fShown[ev.cell] = ev.f;
+    for (const nb of ev.pushed) if (overlay[nb] !== 4) { overlay[nb] = 6; }
+    $('as-stat-expanded').textContent = String(expandedCount);
+  }
+
+  function finish(result: SearchResult) {
+    running = false;
+    search = null;
+    btnStep.disabled = true;
+    finalPath = result.path;
+    const endpoints = new Set([idx(startCell!.r, startCell!.c), idx(endCell!.r, endCell!.c)]);
+    for (const i of result.path) if (!endpoints.has(i)) overlay[i] = 5;
+    const ref = reference!;
+    $('as-stat-expanded').textContent = String(expandedCount);
+    if (!result.path.length) {
+      $('as-stat-cost').textContent = 'No path';
+      $('as-stat-status').textContent = 'No path';
+      stepInfo.textContent = 'The queue ran dry — the end is walled off.';
+      render();
+      return;
+    }
+    $('as-stat-cost').textContent = String(result.cost);
+    const saved = ref.count ? Math.round(100 * (1 - expandedCount / ref.count)) : 0;
+    const extra = result.cost - ref.cost;
+    const w = weight();
+    if (extra === 0) {
+      $('as-stat-status').textContent = 'Cheapest ✓';
+      stepInfo.textContent = w === 0
+        ? `Weight 0 is Dijkstra: ${expandedCount} cells expanded, cost ${result.cost}.`
+        : `Cheapest path, cost ${result.cost}, with ${saved}% fewer cells expanded than Dijkstra.`;
+    } else {
+      const pct = Math.round(100 * extra / ref.cost);
+      $('as-stat-status').textContent = `+${pct}% cost`;
+      stepInfo.textContent = `${saved}% fewer cells than Dijkstra, but the path costs ${result.cost} instead of ${ref.cost} (+${pct}%).`
+        + (w > 1 ? ` The guarantee at weight ${w} is at most ${w}× the cheapest.` : '');
+    }
+    render();
+  }
+
+  function startSearch() {
+    clearPath();
+    reference = runToEnd(0, heuristicSelect.value);
+    $('as-stat-dijkstra').textContent = String(reference.count);
+    $('as-stat-optimal').textContent = reference.path.length ? String(reference.cost) : 'No path';
+    search = astar(weight(), heuristicSelect.value);
+    running = true;
+    $('as-stat-status').textContent = 'Running';
+  }
+
+  function advance(): boolean {
+    if (!search) return false;
+    const r = search.next();
+    if (r.done) { finish(r.value as SearchResult); return false; }
+    applyEvent(r.value as StepEvent);
+    return true;
+  }
+
+  function run() {
+    startSearch();
+    if (toggleStep.checked) {
+      btnStep.disabled = false;
+      stepInfo.textContent = 'Queue: [start, f = w·h]. Press → or wait.';
+      render();
+      autoStep();
+      return;
+    }
+    if (!toggleAnimate.checked) {
+      while (advance()) { /* drain */ }
+      return;
+    }
+    const tick = () => {
+      if (!running) return;
+      if (advance()) { render(); animIds.push(setTimeout(tick, 10)); }
+    };
+    tick();
+  }
+
+  function autoStep() {
+    if (autoStepId) { clearTimeout(autoStepId); autoStepId = null; }
+    if (!search) return;
+    autoStepId = setTimeout(() => {
+      autoStepId = null;
+      doStep();
+      if (search) autoStep();
+    }, 165);
+  }
+
+  function doStep() {
+    if (!search) return;
+    const r = search.next();
+    if (r.done) { finish(r.value as SearchResult); return; }
+    const ev = r.value as StepEvent;
+    applyEvent(ev);
+    const row = Math.floor(ev.cell / COLS), col = ev.cell % COLS;
+    const h = ev.f - ev.g;
+    stepInfo.textContent = `Expand (${row},${col}): g = ${ev.g}, h·w = ${+h.toFixed(2)}, f = ${+ev.f.toFixed(2)} — queue size ${ev.queue}`;
+    render();
+  }
+
+  // ---- Drawing -----------------------------------------------------------
+
+  function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const compare = toggleCompare.checked && reference;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const t = grid[r][c], i = idx(r, c), ov = overlay[i] ?? 0;
+        const x = c * CELL, y = r * CELL;
+        // Once a search has run, the terrain fades back so the flood areas
+        // read as shapes rather than as more colours on a busy map.
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x, y, CELL, CELL);
+        ctx.globalAlpha = reference && t !== 'wall' ? 0.4 : 1;
+        ctx.fillStyle = TERRAIN[t] ? TERRAIN[t].color : TERRAIN.empty.color;
+        ctx.fillRect(x, y, CELL, CELL);
+        ctx.globalAlpha = 1;
+
+        if (compare && reference!.expanded[i] && ov !== 4 && ov !== 5 && t !== 'wall') {
+          ctx.strokeStyle = 'rgba(15,23,42,0.45)';
+          ctx.lineWidth = 1;
+          ctx.save(); ctx.beginPath(); ctx.rect(x, y, CELL, CELL); ctx.clip();
+          ctx.beginPath();
+          for (let k = -CELL; k < CELL; k += 6) { ctx.moveTo(x + k, y + CELL); ctx.lineTo(x + k + CELL, y); }
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        if (ov === 5) { ctx.fillStyle = PATH_COLOR; ctx.fillRect(x, y, CELL, CELL); }
+        else if (ov === 6) { ctx.fillStyle = FRONTIER; ctx.fillRect(x, y, CELL, CELL); }
+        else if (ov === 4) { ctx.fillStyle = EXPANDED; ctx.fillRect(x, y, CELL, CELL); }
+
+        if (t !== 'wall') {
+          ctx.strokeStyle = GRID_LINE; ctx.lineWidth = 0.5;
+          ctx.strokeRect(x + 0.5, y + 0.5, CELL - 1, CELL - 1);
+        }
+
+        if (toggleF.checked && (ov === 4 || ov === 6) && fShown[i] && t !== 'start' && t !== 'end') {
+          ctx.font = `bold ${Math.floor(CELL * 0.36)}px sans-serif`;
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillStyle = 'rgba(0,0,0,0.6)';
+          ctx.fillText(String(Math.round(fShown[i])), x + CELL / 2, y + CELL / 2);
+        }
+      }
+    }
+
+    // The cheapest path, dashed, only once ours is known to be worse.
+    if (compare && finalPath.length && reference!.path.length && reference!.cost < costOf(finalPath)) {
+      ctx.save();
+      ctx.strokeStyle = '#b91c1c';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      reference!.path.forEach((i, k) => {
+        const px = (i % COLS) * CELL + CELL / 2, py = Math.floor(i / COLS) * CELL + CELL / 2;
+        if (k) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+      });
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    if (startCell) drawLabel(startCell, 'S', '#22c55e');
+    if (endCell) drawLabel(endCell, 'E', '#ef4444');
+  }
+
+  function costOf(path: number[]) {
+    let total = 0;
+    for (let k = 1; k < path.length; k++) total += cellCost(path[k]);
+    return total;
+  }
+
+  function drawLabel(cell: { r: number; c: number }, lbl: string, bg: string) {
+    ctx.fillStyle = bg;
+    ctx.fillRect(cell.c * CELL, cell.r * CELL, CELL, CELL);
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${Math.floor(CELL * 0.55)}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(lbl, cell.c * CELL + CELL / 2, cell.r * CELL + CELL / 2);
+  }
+
+  // ---- Painting ----------------------------------------------------------
+
+  document.querySelectorAll<HTMLButtonElement>('.as-terrain-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      drawMode = btn.dataset.terrain!;
+      document.querySelectorAll('.as-terrain-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  function applyPaint(r: number, c: number) {
+    if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return;
+    const isSt = startCell && startCell.r === r && startCell.c === c;
+    const isEn = endCell && endCell.r === r && endCell.c === c;
+    if (drawMode === 'start') {
+      if (startCell) grid[startCell.r][startCell.c] = 'empty';
+      startCell = { r, c }; grid[r][c] = 'start';
+    } else if (drawMode === 'end') {
+      if (endCell) grid[endCell.r][endCell.c] = 'empty';
+      endCell = { r, c }; grid[r][c] = 'end';
+    } else if (drawMode === 'erase') {
+      if (!isSt && !isEn) grid[r][c] = 'empty';
+    } else if (!isSt && !isEn) {
+      grid[r][c] = drawMode;
+    }
+    // Any edit invalidates the search on screen.
+    if (overlay.some((v) => v)) clearPath();
+    else render();
+  }
+
+  function cellFromEvent(e: PointerEvent) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      r: Math.floor((e.clientY - rect.top) / rect.height * ROWS),
+      c: Math.floor((e.clientX - rect.left) / rect.width * COLS),
+    };
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    painting = true;
+    canvas.setPointerCapture(e.pointerId);
+    const { r, c } = cellFromEvent(e); applyPaint(r, c);
+  });
+  canvas.addEventListener('pointermove', (e) => { if (painting) { const { r, c } = cellFromEvent(e); applyPaint(r, c); } });
+  canvas.addEventListener('pointerup', () => { painting = false; });
+  canvas.addEventListener('pointercancel', () => { painting = false; });
+
+  // ---- Wiring ------------------------------------------------------------
+
+  function describeWeight() {
+    const w = weight();
+    $('as-weight-val').textContent = String(w);
+    $('as-weight-note').textContent =
+      w === 0 ? '0 — Dijkstra: the goal is ignored'
+      : w < 1 ? `${w} — between Dijkstra and A*: still cheapest`
+      : w === 1 ? '1 — A*: cheapest, and guided'
+      : w >= 5 ? `${w} — almost pure greedy search`
+      : `${w} — weighted A*: faster, at most ${w}× the cheapest`;
+  }
+
+  toggleStep.addEventListener('change', function () {
+    if (this.checked) toggleAnimate.checked = true;
+  });
+  toggleF.addEventListener('change', render);
+  toggleCompare.addEventListener('change', render);
+  weightInput.addEventListener('input', describeWeight);
+  weightInput.addEventListener('change', () => { if (finalPath.length) run(); });
+  heuristicSelect.addEventListener('change', () => { if (finalPath.length) run(); });
+  mapSelect.addEventListener('change', () => { init(); generateMap(); });
+
+  $('as-generate').addEventListener('click', generateMap);
+  $('as-run').addEventListener('click', run);
+  btnStep.addEventListener('click', doStep);
+  $('as-clear').addEventListener('click', clearPath);
+
+  // Same as Dijkstra and BFS: a one-shot draw, so resize rebuilds and
+  // regenerates. Keeping this identical is part of keeping seeded maps equal.
+  window.addEventListener('resize', () => { init(); generateMap(); });
+
+  const params = new URLSearchParams(location.search);
+  if (params.get('map') === 'maze') mapSelect.value = 'maze';
+  const urlWeight = Number(params.get('weight'));
+  if (params.has('weight') && urlWeight >= 0 && urlWeight <= 5) weightInput.value = String(urlWeight);
+  if (params.get('heuristic') === 'euclidean') heuristicSelect.value = 'euclidean';
+  describeWeight();
+
+  init();
+  generateMap();
+
+  if (isThumbnailMode()) {
+    toggleAnimate.checked = false;
+    toggleF.checked = false;
+    run();
+  }
+</script>

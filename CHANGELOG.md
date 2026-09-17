@@ -6,6 +6,11 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.12.0] — 2026-09-17
+
+### Added
+- **A\* Search** playground — a heuristic-weight slider that runs f = g + w·h from w = 0 (exactly Dijkstra) through classic A* (w = 1) to near-greedy search, re-running on the same map as it moves. Every run also solves the map with Dijkstra in the background, hatching the extra area Dijkstra would search and dashing the cheapest path once the found one is worse. Terrain and maze use the generators from the Dijkstra and BFS pages verbatim, so a seeded map is identical on all three — checked pixel-for-pixel against Dijkstra, and wall-for-wall against BFS, with matching expansion counts at w = 0.
+
 ## [0.11.0] — 2026-09-16
 
 ### Added
