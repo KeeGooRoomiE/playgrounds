@@ -6,6 +6,11 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.13.0] — 2026-09-17
+
+### Added
+- **Easing Curves** playground, the first in a new `animation` category. Draggable cubic-Bézier handles (44px touch targets, pointer events) with the de Casteljau construction drawn live, the `x(s) = t` inversion solved by Newton's method with a bisection fallback and reported step by step, an "equal steps in s" overlay that shows why that inversion is needed, and a race of ten curves on one clock with strobe marks. Penner's bounce and elastic are included and labelled as not being cubic Béziers, with the CSS `linear()` value that approximates them.
+
 ## [0.12.0] — 2026-09-17
 
 ### Added

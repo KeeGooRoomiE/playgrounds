@@ -12,6 +12,7 @@ import Sorting from './Sorting.astro';
 import Sandbox from './Sandbox.astro';
 import GameOfLife from './GameOfLife.astro';
 import AStar from './AStar.astro';
+import Easing from './Easing.astro';
 
 export const islands: Record<string, any> = {
   'perlin-noise': PerlinNoise,
@@ -28,4 +29,5 @@ export const islands: Record<string, any> = {
   sandbox: Sandbox,
   'game-of-life': GameOfLife,
   'a-star': AStar,
+  easing: Easing,
 };

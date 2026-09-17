@@ -1,0 +1,531 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Curve</div>
+      <select id="ez-preset">
+        <option value="custom" hidden>Custom (dragged)</option>
+        <option value="linear">linear</option>
+        <option value="ease">ease</option>
+        <option value="ease-in">ease-in</option>
+        <option value="ease-out">ease-out</option>
+        <option value="ease-in-out" selected>ease-in-out</option>
+        <option value="back-in">back-in (undershoot)</option>
+        <option value="back-out">back-out (overshoot)</option>
+        <option value="bounce">bounce — not a Bézier</option>
+        <option value="elastic">elastic — not a Bézier</option>
+      </select>
+      <div class="ez-css" id="ez-css"></div>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="range-value"><span class="range-label">Time t</span><span class="range-number" id="ez-time-val">0.00</span></div>
+      <input type="range" id="ez-time" min="0" max="1000" value="0" step="1" />
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Duration</span><span class="range-number" id="ez-duration-val">1.5 s</span></div>
+      <input type="range" id="ez-duration" min="5" max="40" value="15" step="1" />
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Show</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="toggle-row">
+          <span class="toggle-label">de Casteljau construction</span>
+          <label class="toggle"><input type="checkbox" id="ez-toggle-build" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Equal steps in s</span>
+          <label class="toggle"><input type="checkbox" id="ez-toggle-steps" /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Strobe marks</span>
+          <label class="toggle"><input type="checkbox" id="ez-toggle-strobe" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Loop</span>
+          <label class="toggle"><input type="checkbox" id="ez-toggle-loop" checked /><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="ez-play">▶ Play</button>
+      <button type="button" class="btn" id="ez-reset">↺ Reset handles</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Time t (= x)</span><span class="stat-val" id="ez-stat-t">—</span></div>
+      <div class="stat-row"><span>Parameter s</span><span class="stat-val" id="ez-stat-s">—</span></div>
+      <div class="stat-row"><span>Progress y</span><span class="stat-val" id="ez-stat-y">—</span></div>
+      <div class="stat-row"><span>Solving x(s) = t</span><span class="stat-val" id="ez-stat-solver">—</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Construction</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#94a3b8"></span> Control polygon</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#38bdf8"></span> 1st lerp — 3 points</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#a78bfa"></span> 2nd lerp — 2 points</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> 3rd lerp — the point on the curve</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap ez-plot-wrap" id="ez-plot-wrap">
+      <canvas id="ez-plot"></canvas>
+    </div>
+    <div class="step-info" id="ez-step-info">Drag the two handles. Time runs along x, progress up y.</div>
+    <div class="canvas-wrap" id="ez-race-wrap" style="margin-top:12px">
+      <canvas id="ez-race"></canvas>
+    </div>
+    <div class="step-info">Ten curves, one clock. Marks show where each ball is at every tenth of the time. * not a cubic Bézier.</div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  canvas { width: auto; height: auto; display: block; max-width: 100%; margin: 0 auto; }
+  #ez-plot { touch-action: none; }
+  .ez-plot-wrap { background: #0f172a; }
+  .legend-dot { border-radius: 2px; width: 12px; height: 12px; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+  .ez-css {
+    margin-top: 6px; font-family: var(--font-mono); font-size: 11px; line-height: 1.4;
+    background: rgba(15, 23, 42, 0.05); border: 1px solid var(--border); border-radius: 4px;
+    padding: 6px 8px; word-break: break-all; max-height: 84px; overflow-y: auto;
+  }
+</style>
+
+<script>
+  import { isThumbnailMode } from '../lib/seed';
+
+  const THUMB = isThumbnailMode();
+  const plot = document.getElementById('ez-plot') as HTMLCanvasElement;
+  const race = document.getElementById('ez-race') as HTMLCanvasElement;
+  const pctx = plot.getContext('2d')!;
+  const rctx = race.getContext('2d')!;
+  const plotWrap = document.getElementById('ez-plot-wrap')!;
+  const raceWrap = document.getElementById('ez-race-wrap')!;
+  const $ = (id: string) => document.getElementById(id)!;
+
+  // ---- Curves ------------------------------------------------------------
+
+  type Bezier = [number, number, number, number];
+  // CSS keyword values from the spec; the two "back" curves are the common
+  // easings.net approximations.
+  const BEZIERS: Record<string, Bezier> = {
+    linear: [0, 0, 1, 1],
+    ease: [0.25, 0.1, 0.25, 1],
+    'ease-in': [0.42, 0, 1, 1],
+    'ease-out': [0, 0, 0.58, 1],
+    'ease-in-out': [0.42, 0, 0.58, 1],
+    'back-in': [0.36, 0, 0.66, -0.56],
+    'back-out': [0.34, 1.56, 0.64, 1],
+  };
+
+  // Robert Penner's bounce and elastic. Neither is a cubic Bézier.
+  const FUNCTIONS: Record<string, (x: number) => number> = {
+    bounce: (x) => {
+      const n = 7.5625, d = 2.75;
+      if (x < 1 / d) return n * x * x;
+      if (x < 2 / d) { x -= 1.5 / d; return n * x * x + 0.75; }
+      if (x < 2.5 / d) { x -= 2.25 / d; return n * x * x + 0.9375; }
+      x -= 2.625 / d; return n * x * x + 0.984375;
+    },
+    elastic: (x) => x <= 0 ? 0 : x >= 1 ? 1 : Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * (2 * Math.PI / 3)) + 1,
+  };
+
+  /** One coordinate of a cubic Bézier from 0 to 1 with inner control values a, b. */
+  const coord = (s: number, a: number, b: number) => {
+    const u = 1 - s;
+    return 3 * u * u * s * a + 3 * u * s * s * b + s * s * s;
+  };
+  const coordSlope = (s: number, a: number, b: number) => {
+    const u = 1 - s;
+    return 3 * u * u * a + 6 * u * s * (b - a) + 3 * s * s * (1 - b);
+  };
+
+  /**
+   * Time is x, not s. To know the progress at time t, first find the s where
+   * x(s) = t: Newton's method from s = t, falling back to bisection when the
+   * slope is too flat to trust. x is monotonic because CSS only accepts x1 and
+   * x2 in [0, 1], so exactly one s exists.
+   */
+  function solve(t: number, [x1, , x2]: Bezier) {
+    let s = t;
+    for (let k = 1; k <= 8; k++) {
+      const err = coord(s, x1, x2) - t;
+      if (Math.abs(err) < 1e-6) return { s, method: 'Newton', steps: k - 1 };
+      const slope = coordSlope(s, x1, x2);
+      if (Math.abs(slope) < 1e-6) break;
+      s -= err / slope;
+      if (s < 0 || s > 1) break;
+    }
+    let lo = 0, hi = 1, steps = 0;
+    s = t;
+    while (hi - lo > 1e-6 && steps < 40) {
+      s = (lo + hi) / 2;
+      if (coord(s, x1, x2) < t) lo = s; else hi = s;
+      steps++;
+    }
+    return { s, method: 'bisection', steps };
+  }
+
+  let presetName = 'ease-in-out';
+  let handles: Bezier = [...BEZIERS['ease-in-out']];
+  const isFunction = () => presetName in FUNCTIONS;
+
+  function progress(t: number, name: string, bez?: Bezier) {
+    if (FUNCTIONS[name]) return FUNCTIONS[name](t);
+    const b = bez ?? BEZIERS[name];
+    return coord(solve(t, b).s, b[1], b[3]);
+  }
+
+  const fmt = (v: number) => (Math.round(v * 100) / 100).toString();
+
+  function cssText() {
+    if (isFunction()) {
+      // Sampled evenly in time: the CSS linear() function joins these points
+      // with straight segments.
+      const stops = Array.from({ length: 21 }, (_, k) => fmt(FUNCTIONS[presetName](k / 20)));
+      return `linear(${stops.join(', ')})`;
+    }
+    return `cubic-bezier(${handles.map(fmt).join(', ')})`;
+  }
+
+  // ---- Playback ----------------------------------------------------------
+
+  let t = 0, playing = !THUMB, holdUntil = 0, last = performance.now();
+  const timeInput = $('ez-time') as HTMLInputElement;
+  const durationInput = $('ez-duration') as HTMLInputElement;
+  const toggleBuild = $('ez-toggle-build') as HTMLInputElement;
+  const toggleSteps = $('ez-toggle-steps') as HTMLInputElement;
+  const toggleStrobe = $('ez-toggle-strobe') as HTMLInputElement;
+  const toggleLoop = $('ez-toggle-loop') as HTMLInputElement;
+  const btnPlay = $('ez-play') as HTMLButtonElement;
+  const presetSelect = $('ez-preset') as HTMLSelectElement;
+
+  function setPlaying(on: boolean) {
+    playing = on;
+    btnPlay.textContent = on ? '❚❚ Pause' : '▶ Play';
+  }
+
+  // ---- Plot geometry -----------------------------------------------------
+
+  // The vertical range follows the curve so overshoot fits, but it's frozen
+  // while a handle is being dragged — rescaling under the finger would make
+  // the handle run away from it.
+  let Y_MIN = -0.2, Y_MAX = 1.2;
+  let pad = 32, side = 300, plotH = 380, ox = 0;
+
+  function curveRange() {
+    let lo = 0, hi = 1;
+    const sample = (y: number) => { lo = Math.min(lo, y); hi = Math.max(hi, y); };
+    if (isFunction()) for (let k = 0; k <= 100; k++) sample(FUNCTIONS[presetName](k / 100));
+    else { sample(handles[1]); sample(handles[3]); }
+    return [lo - 0.2, hi + 0.2];
+  }
+
+  function layout() {
+    const w = Math.min(plotWrap.clientWidth, 460);
+    pad = w < 360 ? 22 : 32;
+    side = w - pad * 2;
+    if (!active) {
+      const [lo, hi] = curveRange();
+      Y_MIN += (lo - Y_MIN) * 0.2;
+      Y_MAX += (hi - Y_MAX) * 0.2;
+    }
+    // Fixed canvas height; the range is squeezed into it rather than growing it.
+    plotH = Math.round(side * 1.15);
+    // Cards crop to 4:3; a capture widens the canvas instead of losing the
+    // top and bottom of a portrait plot.
+    const cw = THUMB ? Math.round((plotH + pad * 2) * 4 / 3) : w;
+    ox = Math.round((cw - w) / 2);
+    if (plot.width !== cw || plot.height !== plotH + pad * 2) {
+      plot.width = cw;
+      plot.height = plotH + pad * 2;
+    }
+    const rw = raceWrap.clientWidth;
+    const rh = 14 + LANES.length * 30;
+    if (race.width !== rw || race.height !== rh) { race.width = rw; race.height = rh; }
+  }
+
+  const px = (x: number) => ox + pad + x * side;
+  const py = (y: number) => pad + (Y_MAX - y) / (Y_MAX - Y_MIN) * plotH;
+  const unpx = (X: number) => (X - ox - pad) / side;
+  const unpy = (Y: number) => Y_MAX - (Y - pad) / plotH * (Y_MAX - Y_MIN);
+
+  // ---- Drawing: the curve plot -------------------------------------------
+
+  function line(g: CanvasRenderingContext2D, pts: number[][], colour: string, width = 1.5, dash: number[] = []) {
+    g.strokeStyle = colour; g.lineWidth = width; g.setLineDash(dash);
+    g.beginPath();
+    pts.forEach(([x, y], k) => k ? g.lineTo(px(x), py(y)) : g.moveTo(px(x), py(y)));
+    g.stroke();
+    g.setLineDash([]);
+  }
+
+  function dot(g: CanvasRenderingContext2D, x: number, y: number, r: number, colour: string) {
+    g.fillStyle = colour;
+    g.beginPath(); g.arc(px(x), py(y), r, 0, Math.PI * 2); g.fill();
+  }
+
+  const lerp = (a: number[], b: number[], s: number) => [a[0] + (b[0] - a[0]) * s, a[1] + (b[1] - a[1]) * s];
+
+  function drawPlot() {
+    const g = pctx;
+    g.fillStyle = '#0f172a';
+    g.fillRect(0, 0, plot.width, plot.height);
+
+    // The unit square: where time and progress both run 0 → 1.
+    g.fillStyle = 'rgba(148,163,184,0.06)';
+    g.fillRect(px(0), py(1), side, py(0) - py(1));
+    g.strokeStyle = 'rgba(148,163,184,0.25)'; g.lineWidth = 1;
+    g.strokeRect(px(0) + 0.5, py(1) + 0.5, side, py(0) - py(1));
+    g.fillStyle = 'rgba(203,213,225,0.7)';
+    g.font = '11px ui-monospace, monospace';
+    g.textAlign = 'left'; g.textBaseline = 'top';
+    g.fillText('time t →', px(0), py(0) + 6);
+    g.save(); g.translate(px(0) - 8, py(0)); g.rotate(-Math.PI / 2);
+    g.textBaseline = 'bottom';
+    g.fillText('progress →', 0, 0);
+    g.restore();
+
+    const now = currentState();
+
+    if (isFunction()) {
+      const f = FUNCTIONS[presetName];
+      line(g, Array.from({ length: 201 }, (_, k) => [k / 200, f(k / 200)]), '#e2e8f0', 2.5);
+      // The linear() approximation CSS would use.
+      line(g, Array.from({ length: 21 }, (_, k) => [k / 20, f(k / 20)]), 'rgba(245,158,11,0.8)', 1.2, [4, 3]);
+      g.strokeStyle = 'rgba(245,158,11,0.55)'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(px(t), py(Y_MIN)); g.lineTo(px(t), py(now.y)); g.stroke();
+      dot(g, t, now.y, 6, '#f59e0b');
+      return;
+    }
+
+    const [x1, y1, x2, y2] = handles;
+    const P = [[0, 0], [x1, y1], [x2, y2], [1, 1]];
+
+    // Curve, drawn in s.
+    line(g, Array.from({ length: 201 }, (_, k) => {
+      const s = k / 200;
+      return [coord(s, x1, x2), coord(s, y1, y2)];
+    }), '#e2e8f0', 2.5);
+
+    if (toggleSteps.checked) {
+      for (let k = 0; k <= 10; k++) {
+        const s = k / 10, X = coord(s, x1, x2), Y = coord(s, y1, y2);
+        g.strokeStyle = 'rgba(56,189,248,0.35)'; g.lineWidth = 1; g.setLineDash([2, 3]);
+        g.beginPath(); g.moveTo(px(X), py(Y)); g.lineTo(px(X), py(0)); g.stroke();
+        g.setLineDash([]);
+        dot(g, X, Y, 3.5, '#38bdf8');
+        g.fillStyle = '#38bdf8';
+        g.fillRect(px(X) - 1, py(0) + 1, 2, 7);
+      }
+    }
+
+    if (toggleBuild.checked) {
+      const s = now.s;
+      const Q = [lerp(P[0], P[1], s), lerp(P[1], P[2], s), lerp(P[2], P[3], s)];
+      const R = [lerp(Q[0], Q[1], s), lerp(Q[1], Q[2], s)];
+      const B = lerp(R[0], R[1], s);
+      line(g, P, 'rgba(148,163,184,0.7)', 1.2);
+      line(g, Q, 'rgba(56,189,248,0.9)', 1.3);
+      Q.forEach(([x, y]) => dot(g, x, y, 3.5, '#38bdf8'));
+      line(g, R, 'rgba(167,139,250,0.95)', 1.4);
+      R.forEach(([x, y]) => dot(g, x, y, 3.5, '#a78bfa'));
+      g.strokeStyle = 'rgba(245,158,11,0.55)'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(px(B[0]), py(Y_MIN)); g.lineTo(px(B[0]), py(B[1])); g.stroke();
+      dot(g, B[0], B[1], 6, '#f59e0b');
+    } else {
+      line(g, [P[0], P[1]], 'rgba(148,163,184,0.7)', 1.2);
+      line(g, [P[3], P[2]], 'rgba(148,163,184,0.7)', 1.2);
+      dot(g, now.t, now.y, 6, '#f59e0b');
+    }
+
+    // Draggable handles, drawn last so they sit on top.
+    for (const [hx, hy, label] of [[x1, y1, 'P1'], [x2, y2, 'P2']] as const) {
+      dot(g, hx, hy, 9, active === label ? '#fbbf24' : '#f8fafc');
+      g.strokeStyle = '#0f172a'; g.lineWidth = 2;
+      g.beginPath(); g.arc(px(hx), py(hy), 9, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = 'rgba(226,232,240,0.85)';
+      g.textAlign = 'left'; g.textBaseline = 'bottom';
+      g.fillText(label, px(hx) + 12, py(hy) - 4);
+    }
+  }
+
+  // ---- Drawing: the race -------------------------------------------------
+
+  const LANES: { name: string; label: string }[] = [
+    { name: 'current', label: 'your curve' },
+    { name: 'linear', label: 'linear' },
+    { name: 'ease', label: 'ease' },
+    { name: 'ease-in', label: 'ease-in' },
+    { name: 'ease-out', label: 'ease-out' },
+    { name: 'ease-in-out', label: 'ease-in-out' },
+    { name: 'back-in', label: 'back-in' },
+    { name: 'back-out', label: 'back-out' },
+    { name: 'bounce', label: 'bounce*' },
+    { name: 'elastic', label: 'elastic*' },
+  ];
+
+  function laneProgress(name: string, at: number) {
+    if (name === 'current') return isFunction() ? FUNCTIONS[presetName](at) : progress(at, 'custom', handles);
+    return progress(at, name);
+  }
+
+  function drawRace() {
+    const g = rctx, w = race.width;
+    g.fillStyle = '#f8fafc';
+    g.fillRect(0, 0, w, race.height);
+    const labelW = w < 420 ? 78 : 104;
+    // Room either side of the track for curves that undershoot (back-in) or
+    // overshoot (back-out, elastic) — the ball is allowed past the end marks.
+    const span = (w - labelW - 28) / 1.5;
+    const x0 = labelW + 14 + 0.12 * span, x1 = x0 + span;
+    g.font = '11px ui-monospace, monospace';
+    LANES.forEach((lane, k) => {
+      const cy = 22 + k * 30;
+      g.fillStyle = lane.name === 'current' ? '#b45309' : '#475569';
+      g.textAlign = 'right'; g.textBaseline = 'middle';
+      g.fillText(lane.label, labelW, cy);
+      g.strokeStyle = '#e2e8f0'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(x0, cy); g.lineTo(x1, cy); g.stroke();
+      g.fillStyle = '#cbd5e1';
+      g.fillRect(x0 - 1, cy - 6, 2, 12); g.fillRect(x1 - 1, cy - 6, 2, 12);
+      // Strobe: where the ball is at every tenth of the duration. Wide gaps
+      // are speed, bunched marks are slowing down — spacing is velocity.
+      if (toggleStrobe.checked) {
+        for (let m = 1; m < 10; m++) {
+          const X = x0 + (x1 - x0) * laneProgress(lane.name, m / 10);
+          g.fillStyle = 'rgba(100,116,139,0.35)';
+          g.fillRect(Math.round(X) - 1, cy - 4, 2, 8);
+        }
+      }
+      const X = x0 + (x1 - x0) * laneProgress(lane.name, t);
+      g.fillStyle = lane.name === 'current' ? '#f59e0b' : '#6366f1';
+      g.beginPath(); g.arc(X, cy, 7, 0, Math.PI * 2); g.fill();
+    });
+  }
+
+  // ---- State readout -----------------------------------------------------
+
+  function currentState() {
+    if (isFunction()) return { t, s: t, y: FUNCTIONS[presetName](t), solver: 'no Bézier to invert' };
+    const r = solve(t, handles);
+    return {
+      t, s: r.s, y: coord(r.s, handles[1], handles[3]),
+      solver: r.steps === 0 ? `${r.method}, exact` : `${r.method}, ${r.steps} step${r.steps > 1 ? 's' : ''}`,
+    };
+  }
+
+  function updateReadout() {
+    const st = currentState();
+    $('ez-stat-t').textContent = st.t.toFixed(3);
+    $('ez-stat-s').textContent = isFunction() ? '—' : st.s.toFixed(3);
+    $('ez-stat-y').textContent = st.y.toFixed(3);
+    $('ez-stat-solver').textContent = st.solver;
+    $('ez-time-val').textContent = t.toFixed(2);
+    $('ez-duration-val').textContent = `${(Number(durationInput.value) / 10).toFixed(1)} s`;
+    if (document.activeElement !== timeInput) timeInput.value = String(Math.round(t * 1000));
+    const css = cssText();
+    if ($('ez-css').textContent !== css) $('ez-css').textContent = css;
+  }
+
+  // ---- Dragging ----------------------------------------------------------
+
+  let active: 'P1' | 'P2' | null = null;
+
+  function toPlot(ev: PointerEvent) {
+    const rect = plot.getBoundingClientRect();
+    const k = plot.width / rect.width;
+    return { X: (ev.clientX - rect.left) * k, Y: (ev.clientY - rect.top) * k, k };
+  }
+
+  plot.addEventListener('pointerdown', (ev) => {
+    if (isFunction()) return;
+    const { X, Y, k } = toPlot(ev);
+    // A 44px target in CSS pixels, whatever the canvas is scaled to.
+    const reach = 22 * k;
+    const d1 = Math.hypot(X - px(handles[0]), Y - py(handles[1]));
+    const d2 = Math.hypot(X - px(handles[2]), Y - py(handles[3]));
+    const pick = Math.min(d1, d2) > reach ? null : d1 <= d2 ? 'P1' : 'P2';
+    if (!pick) return;
+    active = pick;
+    plot.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+  });
+
+  plot.addEventListener('pointermove', (ev) => {
+    if (!active) return;
+    const { X, Y } = toPlot(ev);
+    // CSS rejects x outside [0, 1] (time must stay invertible), so the handles
+    // are held inside it; y is free, which is where overshoot comes from.
+    const x = Math.min(1, Math.max(0, unpx(X)));
+    const y = Math.min(2, Math.max(-1, unpy(Y)));
+    const r3 = (v: number) => Math.round(v * 100) / 100;
+    if (active === 'P1') { handles[0] = r3(x); handles[1] = r3(y); } else { handles[2] = r3(x); handles[3] = r3(y); }
+    presetName = 'custom';
+    presetSelect.value = 'custom';
+  });
+
+  const release = () => { active = null; };
+  plot.addEventListener('pointerup', release);
+  plot.addEventListener('pointercancel', release);
+
+  // ---- Loop & wiring -----------------------------------------------------
+
+  function frame(now: number) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    if (playing && now >= holdUntil) {
+      t += dt / (Number(durationInput.value) / 10);
+      if (t >= 1) {
+        t = 1;
+        if (toggleLoop.checked) { holdUntil = now + 500; t = 0; } else setPlaying(false);
+      }
+    }
+    layout();
+    drawPlot();
+    drawRace();
+    updateReadout();
+    requestAnimationFrame(frame);
+  }
+
+  function applyPreset(name: string) {
+    presetName = name;
+    if (BEZIERS[name]) handles = [...BEZIERS[name]];
+    $('ez-step-info').textContent = FUNCTIONS[name]
+      ? `${name} isn't a cubic Bézier — no two handles can draw it. CSS approximates it with linear() and many points (dashed).`
+      : 'Drag the two handles. Time runs along x, progress up y.';
+  }
+
+  presetSelect.addEventListener('change', () => applyPreset(presetSelect.value));
+  btnPlay.addEventListener('click', () => {
+    if (!playing && t >= 1) t = 0;
+    setPlaying(!playing);
+  });
+  $('ez-reset').addEventListener('click', () => {
+    const name = presetName === 'custom' ? 'ease-in-out' : presetName;
+    presetSelect.value = name;
+    applyPreset(name);
+  });
+  timeInput.addEventListener('input', () => {
+    setPlaying(false);
+    t = Number(timeInput.value) / 1000;
+  });
+
+  const params = new URLSearchParams(location.search);
+  const urlCurve = params.get('curve');
+  if (urlCurve && (BEZIERS[urlCurve] || FUNCTIONS[urlCurve])) presetSelect.value = urlCurve;
+  applyPreset(presetSelect.value);
+  [Y_MIN, Y_MAX] = curveRange();
+  if (params.get('steps') === '1') toggleSteps.checked = true;
+  const urlT = Number(params.get('t'));
+  if (params.has('t') && urlT >= 0 && urlT <= 1) t = urlT;
+  setPlaying(playing);
+
+  // The rAF loop recomputes both canvas sizes from their wrappers every frame,
+  // so resizing needs no handler of its own and never blanks anything.
+  requestAnimationFrame(frame);
+</script>
