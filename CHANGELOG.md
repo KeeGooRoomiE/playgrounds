@@ -6,6 +6,11 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.15.0] — 2026-09-19
+
+### Added
+- **Verlet Cloth** playground — points that store their previous position instead of a velocity, links that only demand a distance, and relaxation passes that turn the two into fabric. Rope, hanging cloth and a flag with gusting wind; grab, cut (right button or the tool menu) and pin; tear threshold with tearing on or off; the relaxation-pass slider as the only stiffness control, with the distance-check count shown as its price. Five skins: Fishing net, Load map (cells coloured by tension, so the weight the fabric carries is visible), Dark squares, Silk (cells lit by how the folds squeeze them) and Chainmail.
+
 ## [0.14.0] — 2026-09-17
 
 ### Added

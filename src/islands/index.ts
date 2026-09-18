@@ -14,6 +14,7 @@ import GameOfLife from './GameOfLife.astro';
 import AStar from './AStar.astro';
 import Easing from './Easing.astro';
 import Springs from './Springs.astro';
+import Verlet from './Verlet.astro';
 
 export const islands: Record<string, any> = {
   'perlin-noise': PerlinNoise,
@@ -32,4 +33,5 @@ export const islands: Record<string, any> = {
   'a-star': AStar,
   easing: Easing,
   springs: Springs,
+  verlet: Verlet,
 };

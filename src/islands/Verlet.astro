@@ -1,0 +1,524 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Skin</div>
+      <select id="vl-skin">
+        <option value="net">Fishing net</option>
+        <option value="load">Load map — colour by tension</option>
+        <option value="squares">Dark squares</option>
+        <option value="silk">Silk — lit by its folds</option>
+        <option value="chainmail">Chainmail</option>
+      </select>
+      <div class="ctrl-label" style="margin-top:10px">Scene</div>
+      <select id="vl-scene">
+        <option value="rope">Rope — one pinned end</option>
+        <option value="cloth" selected>Cloth — pinned along the top</option>
+        <option value="flag">Flag — pinned at the pole, in wind</option>
+      </select>
+      <div class="ctrl-label" style="margin-top:10px">Drag or tap to</div>
+      <select id="vl-tool">
+        <option value="grab">Grab and pull</option>
+        <option value="cut">Cut links</option>
+        <option value="pin">Pin / unpin a point</option>
+      </select>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">With a mouse, the right button always cuts.</div>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="range-value"><span class="range-label">Relaxation passes</span><span class="range-number" id="vl-iter-val">6</span></div>
+      <input type="range" id="vl-iter" min="1" max="20" value="6" step="1" />
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Gravity</span><span class="range-number" id="vl-gravity-val">900</span></div>
+      <input type="range" id="vl-gravity" min="0" max="2000" value="900" step="50" />
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Wind</span><span class="range-number" id="vl-wind-val">0</span></div>
+      <input type="range" id="vl-wind" min="0" max="1200" value="0" step="50" />
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Tears at</span><span class="range-number" id="vl-tear-val">250%</span></div>
+      <input type="range" id="vl-tear" min="110" max="400" value="250" step="10" />
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Show</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="toggle-row">
+          <span class="toggle-label">Tearing allowed</span>
+          <label class="toggle"><input type="checkbox" id="vl-toggle-tear" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Colour the net by stretch</span>
+          <label class="toggle"><input type="checkbox" id="vl-toggle-stress" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Show points</span>
+          <label class="toggle"><input type="checkbox" id="vl-toggle-points" /><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="vl-reset">↺ Rebuild</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Points</span><span class="stat-val" id="vl-stat-points">—</span></div>
+      <div class="stat-row"><span>Links left</span><span class="stat-val" id="vl-stat-links">—</span></div>
+      <div class="stat-row"><span>Torn</span><span class="stat-val" id="vl-stat-torn">—</span></div>
+      <div class="stat-row"><span>Worst stretch</span><span class="stat-val" id="vl-stat-stretch">—</span></div>
+      <div class="stat-row"><span>Distance checks / frame</span><span class="stat-val" id="vl-stat-work">—</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Legend</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#0ea5e9"></span> Slack — shorter than its rest length</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#334155"></span> At rest length</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> Stretched, about to tear</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Pinned point</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap" id="vl-wrap">
+      <canvas id="vl-canvas"></canvas>
+    </div>
+    <div class="step-info" id="vl-step-info">Drag the cloth. Pull hard enough and it tears.</div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  canvas { width: auto; height: auto; display: block; max-width: 100%; touch-action: none; cursor: crosshair; }
+  .legend-dot { border-radius: 2px; width: 12px; height: 12px; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+</style>
+
+<script>
+  import { getRandom, isThumbnailMode } from '../lib/seed';
+
+  const rand = getRandom();
+  const THUMB = isThumbnailMode();
+  const $ = (id: string) => document.getElementById(id)!;
+  const canvas = $('vl-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const wrap = $('vl-wrap')!;
+
+  const HEIGHT = 520;
+  const DT = 1 / 60;
+  const DRAG = 0.995;      // velocity kept per step — Verlet's only damping
+  const SPACING = 16;      // rest length of a link, in pixels
+
+  const skinSelect = $('vl-skin') as HTMLSelectElement;
+  const sceneSelect = $('vl-scene') as HTMLSelectElement;
+  const toolSelect = $('vl-tool') as HTMLSelectElement;
+  const iterInput = $('vl-iter') as HTMLInputElement;
+  const gravityInput = $('vl-gravity') as HTMLInputElement;
+  const windInput = $('vl-wind') as HTMLInputElement;
+  const tearInput = $('vl-tear') as HTMLInputElement;
+  const toggleTear = $('vl-toggle-tear') as HTMLInputElement;
+  const toggleStress = $('vl-toggle-stress') as HTMLInputElement;
+  const togglePoints = $('vl-toggle-points') as HTMLInputElement;
+
+  // Points keep their previous position instead of a velocity: the difference
+  // between the two *is* the velocity, and it survives every correction we make.
+  let px: Float64Array, py: Float64Array, ox: Float64Array, oy: Float64Array, pinned: Uint8Array;
+  let count = 0;
+  type Link = { a: number; b: number; rest: number; alive: boolean };
+  let links: Link[] = [];
+  // Quads exist only for the grid scenes; a filled skin needs all four of a
+  // cell's edges alive, so a tear opens a real hole instead of a smear.
+  let quads: { p: number[]; edges: Link[] }[] = [];
+  let torn = 0, worst = 1, work = 0, time = 0;
+
+  function build() {
+    const W = canvas.width, H = canvas.height;
+    const xs: number[] = [], ys: number[] = [], pins: number[] = [];
+    links = [];
+    quads = [];
+    torn = 0; worst = 1;
+    const scene = sceneSelect.value;
+
+    if (scene === 'rope') {
+      const n = Math.min(60, Math.floor((H - 80) / SPACING));
+      for (let i = 0; i < n; i++) { xs.push(W / 2); ys.push(40 + i * SPACING); pins.push(i === 0 ? 1 : 0); }
+      for (let i = 1; i < n; i++) links.push({ a: i - 1, b: i, rest: SPACING, alive: true });
+    } else {
+      const flag = scene === 'flag';
+      const cols = Math.min(flag ? 34 : 48, Math.floor((W - 80) / SPACING));
+      const rows = Math.min(flag ? 20 : 34, Math.floor((H - 90) / SPACING));
+      // A flag hangs off a pole on the left; a cloth hangs in the middle.
+      const x0 = flag ? 60 : Math.round((W - (cols - 1) * SPACING) / 2);
+      const y0 = flag ? 50 : 40;
+      const at = (r: number, c: number) => r * cols + c;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          xs.push(x0 + c * SPACING);
+          ys.push(y0 + r * SPACING);
+          // Cloth hangs from its top row; a flag hangs from its left column.
+          pins.push(flag ? (c === 0 ? 1 : 0) : (r === 0 && c % 4 === 0 ? 1 : 0));
+        }
+      }
+      const across: Link[][] = [], down: Link[][] = [];
+      for (let r = 0; r < rows; r++) {
+        across.push([]); down.push([]);
+        for (let c = 0; c < cols; c++) {
+          if (c + 1 < cols) { const l = { a: at(r, c), b: at(r, c + 1), rest: SPACING, alive: true }; links.push(l); across[r][c] = l; }
+          if (r + 1 < rows) { const l = { a: at(r, c), b: at(r + 1, c), rest: SPACING, alive: true }; links.push(l); down[r][c] = l; }
+        }
+      }
+      for (let r = 0; r + 1 < rows; r++) {
+        for (let c = 0; c + 1 < cols; c++) {
+          quads.push({
+            p: [at(r, c), at(r, c + 1), at(r + 1, c + 1), at(r + 1, c)],
+            edges: [across[r][c], across[r + 1][c], down[r][c], down[r][c + 1]],
+          });
+        }
+      }
+    }
+
+    count = xs.length;
+    px = Float64Array.from(xs); py = Float64Array.from(ys);
+    ox = Float64Array.from(xs); oy = Float64Array.from(ys);
+    pinned = Uint8Array.from(pins);
+  }
+
+  function integrate(dt: number) {
+    const g = Number(gravityInput.value);
+    const w = Number(windInput.value);
+    // A little gustiness so a flag doesn't sit in a steady stream.
+    const gust = w * (0.65 + 0.35 * Math.sin(time * 1.7) * Math.sin(time * 0.6 + 1.3));
+    for (let i = 0; i < count; i++) {
+      if (pinned[i]) { ox[i] = px[i]; oy[i] = py[i]; continue; }
+      const vx = (px[i] - ox[i]) * DRAG, vy = (py[i] - oy[i]) * DRAG;
+      ox[i] = px[i]; oy[i] = py[i];
+      px[i] += vx + gust * dt * dt;
+      py[i] += vy + g * dt * dt;
+    }
+  }
+
+  /**
+   * Relaxation: walk the links and pull each pair back toward its rest length,
+   * half from each end. One pass leaves the cloth rubbery; several passes make
+   * it stiff. There is no force, no stiffness constant — only distance.
+   */
+  function relax(passes: number) {
+    const tearRatio = Number(tearInput.value) / 100;
+    const canTear = toggleTear.checked;
+    worst = 1;
+    work = 0;
+    for (let pass = 0; pass < passes; pass++) {
+      for (const link of links) {
+        if (!link.alive) continue;
+        work++;
+        const { a, b, rest } = link;
+        let dx = px[b] - px[a], dy = py[b] - py[a];
+        const d = Math.hypot(dx, dy) || 1e-6;
+        if (pass === 0 && d / rest > worst) worst = d / rest;
+        if (canTear && d > rest * tearRatio) { link.alive = false; torn++; continue; }
+        const diff = (d - rest) / d * 0.5;
+        dx *= diff; dy *= diff;
+        if (!pinned[a]) { px[a] += dx; py[a] += dy; }
+        if (!pinned[b]) { px[b] -= dx; py[b] -= dy; }
+      }
+    }
+    const W = canvas.width, H = canvas.height;
+    for (let i = 0; i < count; i++) {
+      px[i] = Math.min(W - 2, Math.max(2, px[i]));
+      py[i] = Math.min(H - 2, Math.max(2, py[i]));
+    }
+  }
+
+  // ---- Pointer -------------------------------------------------------------
+
+  let held = -1, cutting = false;
+  let pointer = { x: 0, y: 0 }, lastPointer = { x: 0, y: 0 };
+
+  function toCanvas(ev: PointerEvent) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (ev.clientX - rect.left) * canvas.width / rect.width,
+      y: (ev.clientY - rect.top) * canvas.height / rect.height,
+    };
+  }
+
+  function nearest(x: number, y: number, reach: number) {
+    let best = -1, bestD = reach * reach;
+    for (let i = 0; i < count; i++) {
+      const d = (px[i] - x) ** 2 + (py[i] - y) ** 2;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+
+  /** Cut every link whose midpoint the pointer swept past. */
+  function cutAlong(from: { x: number; y: number }, to: { x: number; y: number }) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / 6));
+    for (const link of links) {
+      if (!link.alive) continue;
+      const mx = (px[link.a] + px[link.b]) / 2, my = (py[link.a] + py[link.b]) / 2;
+      for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        const x = from.x + (to.x - from.x) * t, y = from.y + (to.y - from.y) * t;
+        if ((mx - x) ** 2 + (my - y) ** 2 < 100) { link.alive = false; torn++; break; }
+      }
+    }
+  }
+
+  canvas.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    canvas.setPointerCapture(ev.pointerId);
+    pointer = lastPointer = toCanvas(ev);
+    const tool = ev.button === 2 ? 'cut' : toolSelect.value;
+    if (tool === 'cut') { cutting = true; cutAlong(pointer, pointer); return; }
+    const i = nearest(pointer.x, pointer.y, 22);
+    if (i < 0) return;
+    if (tool === 'pin') {
+      pinned[i] = pinned[i] ? 0 : 1;
+      $('vl-step-info').textContent = pinned[i] ? 'Pinned — that point stops moving.' : 'Unpinned.';
+      return;
+    }
+    held = i;
+  });
+  canvas.addEventListener('pointermove', (ev) => {
+    if (held < 0 && !cutting) return;
+    pointer = toCanvas(ev);
+    if (cutting) { cutAlong(lastPointer, pointer); lastPointer = pointer; }
+  });
+  const release = () => { held = -1; cutting = false; };
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+  canvas.addEventListener('contextmenu', (ev) => ev.preventDefault());
+
+  // ---- Drawing -------------------------------------------------------------
+
+  function stressColour(ratio: number) {
+    if (ratio < 1) {
+      const t = Math.min(1, (1 - ratio) * 6);
+      return `rgb(${Math.round(51 + (14 - 51) * t)} ${Math.round(65 + (165 - 65) * t)} ${Math.round(85 + (233 - 85) * t)})`;
+    }
+    const t = Math.min(1, (ratio - 1) / Math.max(0.05, Number(tearInput.value) / 100 - 1));
+    return `rgb(${Math.round(51 + (239 - 51) * t)} ${Math.round(65 + (68 - 65) * t)} ${Math.round(85 + (68 - 85) * t)})`;
+  }
+
+  /**
+   * Load map: a filled cell coloured by how far its edges are from their rest
+   * length. Slack is blue, rest is pale grey, and a cell close to tearing is
+   * red — so the load from your finger is visible spreading through the sheet.
+   */
+  function loadColour(ratio: number) {
+    // Cloth is nearly inextensible: even a hard pull stretches a link by a few
+    // per cent, so the scale is deliberately sensitive — 8% over rest is full
+    // red — rather than spread across the tear threshold.
+    if (ratio < 1) {
+      const t = Math.min(1, (1 - ratio) / 0.12);
+      return `rgb(${Math.round(203 - 147 * t)} ${Math.round(213 - 24 * t)} ${Math.round(225 + 23 * t)})`;
+    }
+    const t = Math.min(1, (ratio - 1) / 0.08);
+    return `rgb(${Math.round(203 + 17 * t)} ${Math.round(213 - 175 * t)} ${Math.round(225 - 187 * t)})`;
+  }
+
+  function drawQuads(kind: string) {
+    for (const q of quads) {
+      if (!q.edges.every((e) => e && e.alive)) continue;
+      const [a, b, c, d] = q.p;
+      ctx.beginPath();
+      ctx.moveTo(px[a], py[a]);
+      ctx.lineTo(px[b], py[b]);
+      ctx.lineTo(px[c], py[c]);
+      ctx.lineTo(px[d], py[d]);
+      ctx.closePath();
+      if (kind === 'silk') {
+        // Cloth folds turn the surface away from the viewer, and a cell seen
+        // edge-on is drawn narrower than its rest length. So width is the
+        // shading: ridges stay bright, the insides of folds go dark.
+        const wide = Math.hypot(px[b] - px[a], py[b] - py[a]) / SPACING;
+        const slant = (py[b] - py[a]) / SPACING;
+        const light = Math.max(0.12, Math.min(1.2, (wide - 0.5) * 2.1 + 0.2 * slant));
+        ctx.fillStyle = `rgb(${Math.round(Math.min(255, 244 * light))} ${Math.round(Math.min(255, 214 * light))} ${Math.round(Math.min(255, 172 * light))})`;
+        ctx.fill();
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else if (kind === 'load') {
+        let sum = 0;
+        for (const e of q.edges) sum += Math.hypot(px[e.b] - px[e.a], py[e.b] - py[e.a]) / e.rest;
+        ctx.fillStyle = loadColour(sum / q.edges.length);
+        ctx.fill();
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      } else {
+        // Dark squares: each cell slightly lighter where it is stretched, so
+        // folds and strain still read on a near-black sheet.
+        const side = Math.hypot(px[b] - px[a], py[b] - py[a]) / SPACING;
+        const t = Math.max(0, Math.min(1, (side - 0.75) * 1.6));
+        const v = Math.round(24 + 44 * t);
+        ctx.fillStyle = `rgb(${v} ${v + 6} ${v + 16})`;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(148,163,184,0.25)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+  }
+
+  /** Rings at the points, short steel links between them. */
+  function drawChainmail() {
+    ctx.strokeStyle = 'rgba(100,116,139,0.55)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    for (const l of links) {
+      if (!l.alive) continue;
+      ctx.moveTo(px[l.a], py[l.a]); ctx.lineTo(px[l.b], py[l.b]);
+    }
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    for (let i = 0; i < count; i++) {
+      ctx.strokeStyle = pinned[i] ? '#f59e0b' : '#cbd5e1';
+      ctx.beginPath(); ctx.arc(px[i], py[i], 4.5, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(15,23,42,0.55)';
+      ctx.beginPath(); ctx.arc(px[i], py[i], 4.5, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+    }
+  }
+
+  function render() {
+    const W = canvas.width, H = canvas.height;
+    const skin = skinSelect.value;
+    ctx.fillStyle = skin === 'squares' ? '#0b1120' : skin === 'chainmail' ? '#0b0f16' : skin === 'silk' ? '#1c1917' : '#f8fafc';
+    ctx.fillRect(0, 0, W, H);
+
+    const grid = quads.length > 0;
+    if (skin === 'chainmail') {
+      drawChainmail();
+    } else if (grid && skin !== 'net') {
+      drawQuads(skin);
+    } else {
+      const stress = toggleStress.checked && skin === 'net';
+      ctx.lineWidth = sceneSelect.value === 'rope' ? 3 : 1.4;
+      if (!stress) {
+        ctx.strokeStyle = skin === 'squares' ? '#94a3b8' : '#334155';
+        ctx.beginPath();
+        for (const l of links) {
+          if (!l.alive) continue;
+          ctx.moveTo(px[l.a], py[l.a]); ctx.lineTo(px[l.b], py[l.b]);
+        }
+        ctx.stroke();
+      } else {
+        for (const l of links) {
+          if (!l.alive) continue;
+          const d = Math.hypot(px[l.b] - px[l.a], py[l.b] - py[l.a]);
+          ctx.strokeStyle = stressColour(d / l.rest);
+          ctx.beginPath();
+          ctx.moveTo(px[l.a], py[l.a]); ctx.lineTo(px[l.b], py[l.b]);
+          ctx.stroke();
+        }
+      }
+    }
+
+    if (togglePoints.checked) {
+      ctx.fillStyle = skin === 'squares' || skin === 'chainmail' || skin === 'silk' ? '#cbd5e1' : '#64748b';
+      for (let i = 0; i < count; i++) if (!pinned[i]) ctx.fillRect(px[i] - 1.5, py[i] - 1.5, 3, 3);
+    }
+    ctx.fillStyle = '#f59e0b';
+    for (let i = 0; i < count; i++) {
+      if (!pinned[i]) continue;
+      ctx.beginPath(); ctx.arc(px[i], py[i], 4, 0, Math.PI * 2); ctx.fill();
+    }
+    if (held >= 0) {
+      ctx.strokeStyle = 'rgba(245,158,11,0.9)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px[held], py[held], 9, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    $('vl-stat-points').textContent = String(count);
+    const alive = links.reduce((n, l) => n + (l.alive ? 1 : 0), 0);
+    $('vl-stat-links').textContent = String(alive);
+    $('vl-stat-torn').textContent = torn ? String(torn) : '—';
+    $('vl-stat-stretch').textContent = `${Math.round(worst * 100)}%`;
+    $('vl-stat-work').textContent = work.toLocaleString('en');
+    $('vl-iter-val').textContent = iterInput.value;
+    $('vl-gravity-val').textContent = gravityInput.value;
+    $('vl-wind-val').textContent = windInput.value;
+    $('vl-tear-val').textContent = `${tearInput.value}%`;
+  }
+
+  function resize() {
+    const w = wrap.clientWidth;
+    if (canvas.width === w && canvas.height === HEIGHT) return false;
+    canvas.width = w;
+    canvas.height = HEIGHT;
+    return true;
+  }
+
+  function frame() {
+    if (resize()) build();
+    time += DT;
+    integrate(DT);
+    if (held >= 0) {
+      // Dragged points are placed, not pushed: previous position follows along,
+      // so a flick still hands the cloth some velocity.
+      px[held] = pointer.x; py[held] = pointer.y;
+    }
+    relax(Number(iterInput.value));
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  // Each scene brings its own gravity and wind: a flag in full gravity just
+  // drapes on the floor.
+  const SCENE_DEFAULTS: Record<string, { gravity: string; wind: string }> = {
+    rope: { gravity: '900', wind: '0' },
+    cloth: { gravity: '900', wind: '0' },
+    flag: { gravity: '120', wind: '900' },
+  };
+
+  sceneSelect.addEventListener('change', () => {
+    const d = SCENE_DEFAULTS[sceneSelect.value];
+    gravityInput.value = d.gravity;
+    windInput.value = d.wind;
+    build();
+    $('vl-step-info').textContent = sceneSelect.value === 'rope'
+      ? 'A rope is the same rule with one line of links.'
+      : sceneSelect.value === 'flag'
+      ? 'Raise the wind slider — the flag flaps without a single aerodynamic formula.'
+      : 'Drag the cloth. Pull hard enough and it tears.';
+  });
+  $('vl-reset').addEventListener('click', build);
+  [iterInput, gravityInput, windInput, tearInput].forEach((el) => el.addEventListener('input', render));
+
+  const params = new URLSearchParams(location.search);
+  const urlSkin = params.get('skin');
+  if (urlSkin && [...skinSelect.options].some((o) => o.value === urlSkin)) skinSelect.value = urlSkin;
+  const urlScene = params.get('scene');
+  if (urlScene && [...sceneSelect.options].some((o) => o.value === urlScene)) {
+    sceneSelect.value = urlScene;
+    gravityInput.value = SCENE_DEFAULTS[urlScene].gravity;
+    windInput.value = SCENE_DEFAULTS[urlScene].wind;
+  }
+  for (const [key, input] of [['iterations', iterInput], ['wind', windInput], ['tear', tearInput], ['gravity', gravityInput]] as const) {
+    const v = params.get(key);
+    if (v !== null && !Number.isNaN(Number(v))) input.value = v;
+  }
+
+  resize();
+  build();
+
+  if (THUMB) {
+    // Settle, then optionally pull a point down hard enough to tear a hole.
+    const steps = Number(params.get('steps')) || 90;
+    const pull = params.get('pull');
+    for (let f = 0; f < steps; f++) {
+      time += DT;
+      integrate(DT);
+      if (pull) {
+        const [cx, cy] = pull.split(',').map(Number);
+        if (held < 0) held = nearest(canvas.width * cx, canvas.height * 0.4, 40);
+        if (held >= 0) {
+          px[held] = canvas.width * cx;
+          py[held] = Math.min(canvas.height - 10, canvas.height * 0.4 + f * cy);
+        }
+      }
+      relax(Number(iterInput.value));
+    }
+    held = -1;
+  }
+
+  requestAnimationFrame(frame);
+</script>
