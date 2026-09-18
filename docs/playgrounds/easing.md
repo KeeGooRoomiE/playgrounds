@@ -48,8 +48,9 @@ uneven equal-s ticks together.
 
 ## Page structure
 
-Full six-section template this time, including *Mobile Behavior* — the handle
-hit area and touch-action are real mobile content here.
+No *Mobile Behavior* section — the user dropped it as redundant. The mobile
+details live here instead: 44px handle hit area (22px radius in CSS pixels,
+scaled to the canvas), pointer events, `touch-action: none` on the plot only.
 
 ## Verified
 

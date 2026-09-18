@@ -97,20 +97,6 @@ are fast, bunched marks are slowing down. Things worth trying:
 - Pick **back-out** and look where the ball stops: past the end, then back.
 - Pick **bounce** — the handles vanish, because no cubic Bézier can draw it.
 
-## Mobile Behavior
-
-The controls stack above the plot below `960px`. The plot fits the column up to
-460px wide and the race stretches across the full width, both redrawn every
-frame from their container's size, so rotating the phone just reflows them.
-
-The handles are the one thing that needs a finger. Dragging uses pointer events,
-so mouse, pen and touch all work the same way, and the plot turns off the
-browser's own touch scrolling so dragging a handle doesn't drag the page. Each
-handle accepts a touch anywhere within 22px of its centre — a 44px target, the
-size a fingertip can actually hit, even though the dot drawn is much smaller.
-The Time slider covers scrubbing on touch. Tested down to 320px, where the plot
-is 286px wide and both handles stay grabbable.
-
 ## Key Concepts
 
 ### Linear interpolation
