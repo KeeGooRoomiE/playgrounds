@@ -44,8 +44,6 @@ alive, so a tear is a real hole.
   blue): cloth is nearly inextensible, so a scale spread over the tear threshold
   came out almost white. Replaced an earlier "gradient map" skin that coloured
   cells by their original position, at the user's request.
-- **squares** — near-black cells on a dark ground, lightened by how stretched
-  the cell is; folds read as banding.
 
 - **silk** — cells lit by how narrow they have been squeezed relative to their
   rest length, which is what a fold does to a cell seen edge-on. The first
@@ -57,11 +55,15 @@ Rope has no quads and always draws as lines.
 
 ## Thumbnail
 
-`thumbnailQuery: "scene=cloth&steps=220&pull=0.5,9"` — thumbnail mode runs
-`steps` frames and, with `pull=x,dy`, grabs the nearest point to (x·width,
-0.4·height) and drags it down `dy` px per frame, which tears a small hole. Lower
-tear thresholds were tried for a bigger gash but the sheet detaches from its
-pins and falls off screen.
+`thumbnailQuery: "seed=311&skin=load&scene=cloth&holes=4&unpin=mid&steps=260"`.
+Thumbnail mode understands `holes=n` (cut every link within a random 26–42px
+radius of a random interior point, seeded), `unpin=mid` (drop the middle pin of
+the top row), `pull=x,dy` (drag a point down `dy` px per frame) and `steps`.
+
+Holes are restricted to the middle 76% × 56% of the canvas: a hole near an edge
+detaches a whole corner instead of reading as a hole. Seed 311 spreads the four
+holes across the sheet; the default seed clustered them on the left. The earlier
+card pulled one point until it tore — a hole too small to see on a card.
 
 ## Page structure
 

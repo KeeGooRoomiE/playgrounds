@@ -5,9 +5,9 @@ tags: [simulation, physics]
 category: simulation
 description: Cloth and rope with no forces in sight — points that remember where they were, links that only insist on a distance, and a few passes of nudging that add up to fabric you can tear.
 thumbnail: /thumbnails/verlet.png
-thumbnailAlt: "A grey mesh of cloth hanging from orange pins along the top, draping in folds, with a small torn hole near the middle where it was pulled."
+thumbnailAlt: "A hanging sheet of cloth shaded red where it carries weight near its pins and pale blue where it hangs slack, with four torn holes through it and a wide sag where one of the middle pins has given way."
 island: verlet
-thumbnailQuery: "scene=cloth&steps=220&pull=0.5,9"
+thumbnailQuery: "seed=311&skin=load&scene=cloth&holes=4&unpin=mid&steps=260"
 ---
 
 ## What Is Verlet Integration?
@@ -90,9 +90,8 @@ Things worth trying:
 fills each cell by how far its edges are from their rest length — red where the
 fabric is carrying weight, blue where it hangs slack — so on a hanging cloth the
 top row glows red and the bottom goes blue, and on the flag the load sits at the
-pole. *Dark squares* is the quiet version, *Silk* shades cells by how narrow
-they have been squeezed so folds catch the light, and *Chainmail* hangs a ring
-on every point. In every filled skin a torn cell simply disappears.
+pole. *Silk* shades cells by how narrow they have been squeezed so
+folds catch the light, and *Chainmail* hangs a ring on every point. In every filled skin a torn cell simply disappears.
 
 **Colour the net by stretch** paints each link by how far it is from its rest
 length — blue where the fabric is slack, dark at rest, red where it's about to
