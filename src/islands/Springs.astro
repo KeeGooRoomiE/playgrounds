@@ -1,0 +1,457 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="range-value"><span class="range-label">Stiffness k</span><span class="range-number" id="sp-k-val">170</span></div>
+      <input type="range" id="sp-k" min="0" max="100" value="68" step="1" />
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Damping c</span><span class="range-number" id="sp-c-val">8</span></div>
+      <input type="range" id="sp-c" min="0" max="60" value="8" step="0.5" />
+      <div style="font-size:11px;color:var(--muted);margin-top:4px" id="sp-regime-note"></div>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Integrator</div>
+      <select id="sp-integrator">
+        <option value="semi">Semi-implicit Euler</option>
+        <option value="explicit">Explicit Euler</option>
+      </select>
+      <div class="ctrl-label" style="margin-top:10px">Timestep</div>
+      <select id="sp-timestep">
+        <option value="variable">Variable — one step per frame</option>
+        <option value="fixed">Fixed — 1/120 s, accumulated</option>
+      </select>
+      <div class="ctrl-label" style="margin-top:10px">Frame rate</div>
+      <select id="sp-hz">
+        <option value="30">30 Hz</option>
+        <option value="60" selected>60 Hz</option>
+        <option value="144">144 Hz</option>
+      </select>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Mode</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="toggle-row">
+          <span class="toggle-label">Flip the target every 0.9 s</span>
+          <label class="toggle"><input type="checkbox" id="sp-toggle-auto" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Easing lane for comparison</span>
+          <label class="toggle"><input type="checkbox" id="sp-toggle-easing" checked /><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="sp-reset">↺ Reset springs</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Damping ratio ζ</span><span class="stat-val" id="sp-stat-zeta">—</span></div>
+      <div class="stat-row"><span>Regime</span><span class="stat-val" id="sp-stat-regime">—</span></div>
+      <div class="stat-row"><span>Settles (2%) in</span><span class="stat-val" id="sp-stat-settle">—</span></div>
+      <div class="stat-row"><span>Overshoot</span><span class="stat-val" id="sp-stat-overshoot">—</span></div>
+      <div class="stat-row"><span>30 Hz vs 144 Hz gap</span><span class="stat-val" id="sp-stat-gap">—</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Step response</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#0f172a"></span> Exact solution</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> Simulated at 30 Hz</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Simulated at 60 Hz</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#6366f1"></span> Simulated at 144 Hz</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap" id="sp-lanes-wrap">
+      <canvas id="sp-lanes"></canvas>
+    </div>
+    <div class="step-info" id="sp-step-info">Tap a lane to move the target — mid-motion is the interesting part.</div>
+    <div class="canvas-wrap" id="sp-plot-wrap" style="margin-top:12px">
+      <canvas id="sp-plot"></canvas>
+    </div>
+    <div class="step-info">Step response of your spring: released at 0, target at 1, the first 2.5 seconds.</div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  canvas { width: auto; height: auto; display: block; max-width: 100%; }
+  #sp-lanes { touch-action: none; cursor: pointer; }
+  .legend-dot { border-radius: 2px; width: 12px; height: 12px; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+</style>
+
+<script>
+  import { isThumbnailMode } from '../lib/seed';
+
+  const THUMB = isThumbnailMode();
+  const $ = (id: string) => document.getElementById(id)!;
+  const lanesCanvas = $('sp-lanes') as HTMLCanvasElement;
+  const plotCanvas = $('sp-plot') as HTMLCanvasElement;
+  const lctx = lanesCanvas.getContext('2d')!;
+  const gctx = plotCanvas.getContext('2d')!;
+
+  const kInput = $('sp-k') as HTMLInputElement;
+  const cInput = $('sp-c') as HTMLInputElement;
+  const integratorSelect = $('sp-integrator') as HTMLSelectElement;
+  const timestepSelect = $('sp-timestep') as HTMLSelectElement;
+  const hzSelect = $('sp-hz') as HTMLSelectElement;
+  const toggleAuto = $('sp-toggle-auto') as HTMLInputElement;
+  const toggleEasing = $('sp-toggle-easing') as HTMLInputElement;
+
+  const FIXED_DT = 1 / 120;
+  const EASE_MS = 800;
+
+  // Stiffness on a log slider: 5 → 800.
+  const stiffness = () => Math.round(5 * Math.pow(160, Number(kInput.value) / 100));
+  const damping = () => Number(cInput.value);
+  const ratio = (k: number, c: number) => c / (2 * Math.sqrt(k));
+
+  // ---- One spring, one step ------------------------------------------------
+
+  type Body = { x: number; v: number; dead: boolean };
+
+  /**
+   * a = −k·(x − target) − c·v, mass 1. The two integrators differ only in
+   * order: explicit Euler moves with the old velocity, semi-implicit updates
+   * the velocity first and moves with the new one. That swap is the whole
+   * difference between a spring that gains energy every step and one that
+   * doesn't.
+   */
+  function step(b: Body, target: number, k: number, c: number, dt: number, kind: string) {
+    if (b.dead) return;
+    const a = -k * (b.x - target) - c * b.v;
+    if (kind === 'explicit') { b.x += b.v * dt; b.v += a * dt; }
+    else { b.v += a * dt; b.x += b.v * dt; }
+    if (!Number.isFinite(b.x) || Math.abs(b.x - target) > 12) b.dead = true;
+  }
+
+  /** Advance one rendered frame of length dt, honouring the timestep mode. */
+  function frameStep(b: Body & { acc?: number }, target: number, k: number, c: number, dt: number) {
+    const kind = integratorSelect.value;
+    if (timestepSelect.value === 'fixed') {
+      b.acc = (b.acc ?? 0) + dt;
+      while (b.acc >= FIXED_DT) { b.acc -= FIXED_DT; step(b, target, k, c, FIXED_DT, kind); }
+    } else {
+      step(b, target, k, c, dt, kind);
+    }
+  }
+
+  // ---- Exact solution ------------------------------------------------------
+
+  /** Position at time t for a unit step from rest, mass 1. */
+  function exact(t: number, k: number, c: number) {
+    const w = Math.sqrt(k), z = ratio(k, c);
+    if (Math.abs(z - 1) < 1e-3) return 1 - Math.exp(-w * t) * (1 + w * t);
+    if (z < 1) {
+      const wd = w * Math.sqrt(1 - z * z);
+      return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + (z * w / wd) * Math.sin(wd * t));
+    }
+    const q = Math.sqrt(z * z - 1), r1 = -w * (z - q), r2 = -w * (z + q);
+    return 1 + (r2 * Math.exp(r1 * t) - r1 * Math.exp(r2 * t)) / (r1 - r2);
+  }
+
+  function settleTime(k: number, c: number) {
+    if (c === 0) return Infinity;
+    let last = 0;
+    for (let t = 0; t <= 30; t += 0.002) if (Math.abs(exact(t, k, c) - 1) > 0.02) last = t;
+    return last >= 29.99 ? Infinity : last;
+  }
+
+  function overshoot(k: number, c: number) {
+    let peak = 0;
+    for (let t = 0; t <= 10; t += 0.002) peak = Math.max(peak, exact(t, k, c));
+    return Math.max(0, peak - 1);
+  }
+
+  // ---- Lanes ---------------------------------------------------------------
+
+  type Lane = { label: string; zeta: number | null; body: Body & { acc?: number } };
+  const lanes: Lane[] = [
+    { label: 'your spring', zeta: null, body: { x: 0, v: 0, dead: false } },
+    { label: 'ζ = 0.25 under', zeta: 0.25, body: { x: 0, v: 0, dead: false } },
+    { label: 'ζ = 1 critical', zeta: 1, body: { x: 0, v: 0, dead: false } },
+    { label: 'ζ = 2 over', zeta: 2, body: { x: 0, v: 0, dead: false } },
+  ];
+  // The easing lane restarts a fixed-duration curve from wherever it is,
+  // which is exactly what a CSS transition does when interrupted.
+  const easing = { from: 0, to: 0, x: 0, started: 0, lastX: 0, v: 0 };
+
+  let target = 0.85;
+  let simTime = 0, sinceFlip = 0, frameAcc = 0;
+
+  const easeInOut = (u: number) => u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+
+  function setTarget(x: number) {
+    target = Math.min(1, Math.max(0, x));
+    easing.from = easing.x;
+    easing.to = target;
+    easing.started = simTime;
+    sinceFlip = 0;
+  }
+
+  function resetAll() {
+    for (const l of lanes) { l.body.x = 0; l.body.v = 0; l.body.dead = false; l.body.acc = 0; }
+    easing.x = easing.from = 0; easing.v = 0;
+    simTime = 0;
+    setTarget(1);
+  }
+
+  function simulateFrame(dt: number) {
+    simTime += dt;
+    const k = stiffness();
+    for (const l of lanes) {
+      const c = l.zeta === null ? damping() : 2 * Math.sqrt(k) * l.zeta;
+      frameStep(l.body, target, k, c, dt);
+    }
+    const u = Math.min(1, (simTime - easing.started) * 1000 / EASE_MS);
+    const nx = easing.from + (easing.to - easing.from) * easeInOut(u);
+    easing.v = (nx - easing.x) / dt;
+    easing.x = nx;
+    if (toggleAuto.checked) {
+      sinceFlip += dt;
+      if (sinceFlip >= 0.9) setTarget(target > 0.5 ? 0 : 1);
+    }
+  }
+
+  // ---- Step-response plot (offline) ----------------------------------------
+
+  type Trace = { hz: number; pts: number[][]; blewUp: boolean };
+  let traces: Trace[] = [];
+  let traceKey = '';
+
+  function computeTraces() {
+    const k = stiffness(), c = damping();
+    const key = [k, c, integratorSelect.value, timestepSelect.value].join('|');
+    if (key === traceKey) return;
+    traceKey = key;
+    const kind = integratorSelect.value, fixed = timestepSelect.value === 'fixed';
+    // Record the physics state at every physics step, stamped with physics
+    // time. With a fixed step every rate produces the very same list, which is
+    // the point; with a variable step each rate gets its own.
+    traces = [30, 60, 144].map((hz) => {
+      const b: Body = { x: 0, v: 0, dead: false };
+      const pts: number[][] = [[0, 0]];
+      let acc = 0, ticks = 0;
+      for (let f = 1; f / hz <= 2.5 + 1e-9 && !b.dead; f++) {
+        if (fixed) {
+          acc += 1 / hz;
+          while (acc >= FIXED_DT - 1e-12 && !b.dead) {
+            acc -= FIXED_DT; ticks++;
+            step(b, 1, k, c, FIXED_DT, kind);
+            if (!b.dead) pts.push([ticks * FIXED_DT, b.x]);
+          }
+        } else {
+          step(b, 1, k, c, 1 / hz, kind);
+          if (!b.dead) pts.push([f / hz, b.x]);
+        }
+      }
+      return { hz, pts, blewUp: b.dead };
+    });
+    const at = (tr: Trace, t: number) => {
+      const i = tr.pts.findIndex(([time]) => time >= t);
+      if (i < 0) return NaN;
+      if (i === 0) return tr.pts[0][1];
+      const [ta, xa] = tr.pts[i - 1], [tb, xb] = tr.pts[i];
+      return xa + (xb - xa) * (t - ta) / (tb - ta);
+    };
+    const [t30, , t144] = traces;
+    let gap = 0;
+    if (t30.blewUp !== t144.blewUp) gap = Infinity;
+    else for (let t = 0; t <= 2.5; t += 0.005) {
+      const a = at(t30, t), b = at(t144, t);
+      if (Number.isFinite(a) && Number.isFinite(b)) gap = Math.max(gap, Math.abs(a - b));
+    }
+    $('sp-stat-gap').textContent = !Number.isFinite(gap) ? 'one blew up' : `${(gap * 100).toFixed(1)}% of the move`;
+  }
+
+  function drawPlot() {
+    const w = plotCanvas.width, h = plotCanvas.height;
+    const g = gctx, padL = 36, padR = 14, padT = 14, padB = 24;
+    const Y0 = -0.4, Y1 = 2.0;
+    const X = (t: number) => padL + t / 2.5 * (w - padL - padR);
+    const Y = (y: number) => padT + (Y1 - Math.max(Y0, Math.min(Y1, y))) / (Y1 - Y0) * (h - padT - padB);
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#e2e8f0'; g.lineWidth = 1;
+    g.font = '10px ui-monospace, monospace'; g.fillStyle = '#64748b';
+    for (const y of [0, 1]) {
+      g.beginPath(); g.moveTo(padL, Y(y)); g.lineTo(w - padR, Y(y)); g.stroke();
+      g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillText(String(y), padL - 6, Y(y));
+    }
+    for (let t = 0; t <= 2.5; t += 0.5) {
+      g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText(`${t}s`, X(t), h - padB + 6);
+    }
+    const k = stiffness(), c = damping();
+    g.strokeStyle = '#0f172a'; g.lineWidth = 2;
+    g.beginPath();
+    for (let i = 0; i <= 300; i++) { const t = i / 300 * 2.5; i ? g.lineTo(X(t), Y(exact(t, k, c))) : g.moveTo(X(t), Y(exact(t, k, c))); }
+    g.stroke();
+    const colour: Record<number, string> = { 30: '#ef4444', 60: '#f59e0b', 144: '#6366f1' };
+    for (const tr of traces) {
+      g.strokeStyle = colour[tr.hz]; g.lineWidth = 1.6;
+      g.beginPath();
+      tr.pts.forEach(([t, y], i) => i ? g.lineTo(X(t), Y(y)) : g.moveTo(X(t), Y(y)));
+      g.stroke();
+      if (tr.blewUp) {
+        const [t, y] = tr.pts[tr.pts.length - 1];
+        g.fillStyle = colour[tr.hz];
+        g.textAlign = 'left'; g.textBaseline = 'bottom';
+        g.fillText(`${tr.hz} Hz blew up`, Math.min(X(t) + 4, w - 90), Math.max(12, Y(y) - 2));
+      }
+    }
+  }
+
+  // ---- Drawing lanes -------------------------------------------------------
+
+  let LANE_H = 58;
+
+  // Positions run 0 → 1, but the track shows −0.6 → 1.6 so that overshoot and
+  // undershoot stay visible instead of piling up against the edges.
+  const toTrack = (x: number) => (x + 0.6) / 2.2;
+  const fromTrack = (u: number) => u * 2.2 - 0.6;
+
+  function laneGeometry() {
+    const w = lanesCanvas.width;
+    const labelW = w < 420 ? 74 : 104;
+    return { x0: labelW + 16, x1: w - 16, labelW };
+  }
+
+  function coil(g: CanvasRenderingContext2D, xa: number, xb: number, y: number) {
+    const n = 12, len = xb - xa;
+    g.beginPath();
+    g.moveTo(xa, y);
+    if (Math.abs(len) < 4) { g.lineTo(xb, y); g.stroke(); return; }
+    for (let i = 1; i < n; i++) g.lineTo(xa + len * i / n, y + (i % 2 ? -7 : 7));
+    g.lineTo(xb, y);
+    g.stroke();
+  }
+
+  function drawLanes() {
+    const g = lctx, w = lanesCanvas.width, h = lanesCanvas.height;
+    const { x0, x1, labelW } = laneGeometry();
+    const P = (x: number) => x0 + toTrack(x) * (x1 - x0);
+    g.fillStyle = '#f8fafc'; g.fillRect(0, 0, w, h);
+
+    const rows = [...lanes.map((l) => ({ label: l.label, x: l.body.x, dead: l.body.dead, spring: true }))];
+    if (toggleEasing.checked) rows.push({ label: `ease ${EASE_MS}ms`, x: easing.x, dead: false, spring: false });
+
+    // Target line through every lane.
+    g.strokeStyle = 'rgba(99,102,241,0.35)'; g.lineWidth = 2; g.setLineDash([4, 4]);
+    g.beginPath(); g.moveTo(P(target), 6); g.lineTo(P(target), h - 6); g.stroke();
+    g.setLineDash([]);
+
+    g.font = '11px ui-monospace, monospace';
+    rows.forEach((row, i) => {
+      const cy = 4 + LANE_H / 2 + i * LANE_H;
+      g.fillStyle = i === 0 ? '#b45309' : row.spring ? '#475569' : '#0f766e';
+      g.textAlign = 'right'; g.textBaseline = 'middle';
+      g.fillText(row.label, labelW, cy);
+      g.strokeStyle = '#e2e8f0'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(x0, cy); g.lineTo(x1, cy); g.stroke();
+
+      if (row.dead) {
+        g.fillStyle = '#ef4444';
+        g.textAlign = 'left';
+        g.fillText('✗ blew up — explicit Euler added energy every step', x0 + 4, cy - 14);
+        return;
+      }
+      const bx = Math.max(x0, Math.min(x1, P(row.x)));
+      if (row.spring) {
+        g.strokeStyle = 'rgba(71,85,105,0.7)'; g.lineWidth = 1.5;
+        coil(g, P(target), bx, cy);
+      }
+      g.fillStyle = i === 0 ? '#f59e0b' : row.spring ? '#6366f1' : '#14b8a6';
+      g.beginPath(); g.arc(bx, cy, 10, 0, Math.PI * 2); g.fill();
+    });
+  }
+
+  function resize() {
+    const lw = $('sp-lanes-wrap').clientWidth;
+    const rowsN = 4 + (toggleEasing.checked ? 1 : 0);
+    // Cards crop to 4:3: a capture spreads the lanes out to that shape.
+    LANE_H = THUMB ? Math.floor((lw * 3 / 4 - 8) / rowsN) : 58;
+    const lh = 8 + rowsN * LANE_H;
+    if (lanesCanvas.width !== lw || lanesCanvas.height !== lh) { lanesCanvas.width = lw; lanesCanvas.height = lh; }
+    const pw = $('sp-plot-wrap').clientWidth;
+    const ph = Math.round(Math.min(240, Math.max(170, pw * 0.3)));
+    if (plotCanvas.width !== pw || plotCanvas.height !== ph) { plotCanvas.width = pw; plotCanvas.height = ph; }
+  }
+
+  // ---- Readouts ------------------------------------------------------------
+
+  let statsKey = '';
+  function updateStats() {
+    const k = stiffness(), c = damping(), z = ratio(k, c);
+    $('sp-k-val').textContent = String(k);
+    $('sp-c-val').textContent = String(c);
+    const key = `${k}|${c}`;
+    if (key === statsKey) return;
+    statsKey = key;
+    const regime = c === 0 ? 'Undamped' : z < 0.999 ? 'Underdamped' : z <= 1.001 ? 'Critical' : 'Overdamped';
+    $('sp-stat-zeta').textContent = z.toFixed(2);
+    $('sp-stat-regime').textContent = regime;
+    const st = settleTime(k, c);
+    $('sp-stat-settle').textContent = Number.isFinite(st) ? `${(st * 1000).toFixed(0)} ms` : 'never';
+    $('sp-stat-overshoot').textContent = `${(overshoot(k, c) * 100).toFixed(0)}%`;
+    $('sp-regime-note').textContent =
+      c === 0 ? 'No damping: it oscillates forever (if the integrator lets it).'
+      : z < 1 ? 'Underdamped: overshoots and rings before settling.'
+      : z <= 1.001 ? 'Critical: the fastest settle with no overshoot.'
+      : 'Overdamped: no overshoot, but sluggish.';
+  }
+
+  // ---- Loop & wiring ---------------------------------------------------------
+
+  let last = performance.now();
+  function frame(now: number) {
+    const real = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    resize();
+    if (!THUMB) {
+      // The simulated display: only step when a frame at the chosen rate is due.
+      frameAcc += real;
+      const frameDt = 1 / Number(hzSelect.value);
+      let n = 0;
+      while (frameAcc >= frameDt && n < 20) { frameAcc -= frameDt; simulateFrame(frameDt); n++; }
+    }
+    updateStats();
+    computeTraces();
+    drawLanes();
+    drawPlot();
+    requestAnimationFrame(frame);
+  }
+
+  lanesCanvas.addEventListener('pointerdown', (ev) => {
+    const rect = lanesCanvas.getBoundingClientRect();
+    const X = (ev.clientX - rect.left) * lanesCanvas.width / rect.width;
+    const { x0, x1 } = laneGeometry();
+    toggleAuto.checked = false;
+    setTarget(fromTrack((X - x0) / (x1 - x0)));
+    $('sp-step-info').textContent = 'The springs keep their speed and bend toward the new target; the easing lane starts over from zero velocity.';
+  });
+
+  $('sp-reset').addEventListener('click', resetAll);
+  // A spring that blew up stays dead until reset — changing the setup revives it.
+  [kInput, cInput, integratorSelect, timestepSelect, hzSelect].forEach((el) =>
+    el.addEventListener('change', () => { if (lanes.some((l) => l.body.dead)) resetAll(); }));
+
+  const params = new URLSearchParams(location.search);
+  const urlK = Number(params.get('k'));
+  if (urlK > 0) kInput.value = String(Math.round(100 * Math.log(urlK / 5) / Math.log(160)));
+  const urlC = Number(params.get('c'));
+  if (params.has('c') && urlC >= 0) cInput.value = String(urlC);
+  for (const [key, sel] of [['integrator', integratorSelect], ['timestep', timestepSelect], ['hz', hzSelect]] as const) {
+    const v = params.get(key);
+    if (v && [...sel.options].some((o) => o.value === v)) sel.value = v;
+  }
+
+  resetAll();
+  if (THUMB) {
+    const frames = Number(params.get('frames')) || 0;
+    for (let f = 0; f < frames; f++) simulateFrame(1 / 60);
+  }
+  requestAnimationFrame(frame);
+</script>

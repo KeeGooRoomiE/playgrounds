@@ -6,6 +6,11 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.14.0] — 2026-09-17
+
+### Added
+- **Springs** playground, second in the `animation` category. Stiffness and damping sliders with damping-ratio readouts; three reference lanes at ζ = 0.25, 1 and 2 on the same stiffness; an 800 ms easing lane that visibly restarts when the target moves mid-flight while the springs keep their velocity. Explicit vs semi-implicit Euler, variable vs fixed (1/120 s, accumulated) timestep, and a simulated 30 / 60 / 144 Hz frame rate, with a step-response plot of all three rates over the exact analytic solution and a 30-vs-144 Hz gap readout that drops to exactly zero with a fixed step.
+
 ## [0.13.0] — 2026-09-17
 
 ### Added
