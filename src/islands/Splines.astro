@@ -1,0 +1,554 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Skin</div>
+      <select id="sl-skin">
+        <option value="line">Line</option>
+        <option value="track">Race track</option>
+      </select>
+      <div class="ctrl-label" style="margin-top:10px">Knot spacing</div>
+      <select id="sl-alpha">
+        <option value="0">Uniform (α = 0)</option>
+        <option value="0.5" selected>Centripetal (α = 0.5)</option>
+        <option value="1">Chordal (α = 1)</option>
+      </select>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px" id="sl-alpha-note"></div>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="range-value"><span class="range-label">Arc-length samples</span><span class="range-number" id="sl-samples-val">24</span></div>
+      <input type="range" id="sl-samples" min="2" max="80" value="24" step="1" />
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">Table entries per segment</div>
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Lap time</span><span class="range-number" id="sl-duration-val">6.0 s</span></div>
+      <input type="range" id="sl-duration" min="20" max="140" value="60" step="5" />
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Show</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="toggle-row">
+          <span class="toggle-label">Strobe marks</span>
+          <label class="toggle"><input type="checkbox" id="sl-toggle-strobe" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Arc-length table</span>
+          <label class="toggle"><input type="checkbox" id="sl-toggle-lut" /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">The arc-length runner</span>
+          <label class="toggle"><input type="checkbox" id="sl-toggle-blue" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Closed loop</span>
+          <label class="toggle"><input type="checkbox" id="sl-toggle-closed" checked /><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="sl-play">❚❚ Pause</button>
+      <button type="button" class="btn" id="sl-reset">↺ Reset points</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Path length</span><span class="stat-val" id="sl-stat-length">—</span></div>
+      <div class="stat-row"><span>Speed, by parameter</span><span class="stat-val" id="sl-stat-speed">—</span></div>
+      <div class="stat-row"><span>Fastest / slowest</span><span class="stat-val" id="sl-stat-ratio">—</span></div>
+      <div class="stat-row"><span>Table error</span><span class="stat-val" id="sl-stat-error">—</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Legend</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#ef4444"></span> Even in parameter — speeds up and slows down</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#0ea5e9"></span> Even in arc length — constant speed</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Key point — drag it</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap" id="sl-wrap">
+      <canvas id="sl-canvas"></canvas>
+    </div>
+    <div class="step-info" id="sl-step-info">Drag the key points. The curve passes through every one of them.</div>
+    <div class="canvas-wrap" id="sl-extra-wrap" style="margin-top:12px">
+      <canvas id="sl-extra"></canvas>
+    </div>
+    <div class="step-info">Left: speed along the curve. Right: interpolating an angle from 350° to 10°.</div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  canvas { width: auto; height: auto; display: block; max-width: 100%; }
+  #sl-canvas { touch-action: none; cursor: grab; }
+  .legend-dot { border-radius: 2px; width: 12px; height: 12px; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+</style>
+
+<script>
+  import { isThumbnailMode } from '../lib/seed';
+
+  const THUMB = isThumbnailMode();
+  const $ = (id: string) => document.getElementById(id)!;
+  const canvas = $('sl-canvas') as HTMLCanvasElement;
+  const extra = $('sl-extra') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const ectx = extra.getContext('2d')!;
+  const wrap = $('sl-wrap')!;
+  const extraWrap = $('sl-extra-wrap')!;
+
+  const alphaSelect = $('sl-alpha') as HTMLSelectElement;
+  const samplesInput = $('sl-samples') as HTMLInputElement;
+  const durationInput = $('sl-duration') as HTMLInputElement;
+  const toggleStrobe = $('sl-toggle-strobe') as HTMLInputElement;
+  const toggleLut = $('sl-toggle-lut') as HTMLInputElement;
+  const toggleClosed = $('sl-toggle-closed') as HTMLInputElement;
+  const toggleBlue = $('sl-toggle-blue') as HTMLInputElement;
+  const skinSelect = $('sl-skin') as HTMLSelectElement;
+  const btnPlay = $('sl-play') as HTMLButtonElement;
+
+  const HEIGHT = 440;
+  const BY_PARAM = '#ef4444', BY_LENGTH = '#0ea5e9', KEY = '#f59e0b';
+
+  type P = { x: number; y: number };
+  let pts: P[] = [];
+
+  function defaultPoints() {
+    const w = canvas.width, h = canvas.height;
+    return [
+      // A loop whose segments differ enough for the two travellers to drift
+      // apart (about 3× between fastest and slowest), without the near-stall a
+      // key point gets when its two neighbours sit almost on top of each other.
+      { x: 0.18, y: 0.30 }, { x: 0.42, y: 0.18 }, { x: 0.70, y: 0.26 },
+      { x: 0.86, y: 0.55 }, { x: 0.58, y: 0.80 }, { x: 0.24, y: 0.66 },
+    ].map((p) => ({ x: p.x * w, y: p.y * h }));
+  }
+
+  // ---- Catmull–Rom ---------------------------------------------------------
+
+  /**
+   * One segment of a Catmull–Rom spline, in the Barry–Goldman form so the knot
+   * spacing exponent α works: 0 gives the uniform spline, 0.5 the centripetal
+   * one (never loops or cusps between points), 1 the chordal one.
+   */
+  function segment(p0: P, p1: P, p2: P, p3: P, u: number, alpha: number): P {
+    if (alpha === 0) {
+      // Plain uniform Catmull–Rom, written out directly.
+      const u2 = u * u, u3 = u2 * u;
+      const f = (a: number, b: number, c: number, d: number) =>
+        0.5 * ((2 * b) + (-a + c) * u + (2 * a - 5 * b + 4 * c - d) * u2 + (-a + 3 * b - 3 * c + d) * u3);
+      return { x: f(p0.x, p1.x, p2.x, p3.x), y: f(p0.y, p1.y, p2.y, p3.y) };
+    }
+    const knot = (t: number, a: P, b: P) => t + Math.pow(Math.hypot(b.x - a.x, b.y - a.y), alpha);
+    const t0 = 0, t1 = knot(t0, p0, p1), t2 = knot(t1, p1, p2), t3 = knot(t2, p2, p3);
+    const t = t1 + (t2 - t1) * u;
+    const mix = (a: P, b: P, ta: number, tb: number): P => {
+      const k = tb === ta ? 0 : (t - ta) / (tb - ta);
+      return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
+    };
+    const a1 = mix(p0, p1, t0, t1), a2 = mix(p1, p2, t1, t2), a3 = mix(p2, p3, t2, t3);
+    const b1 = mix(a1, a2, t0, t2), b2 = mix(a2, a3, t1, t3);
+    return mix(b1, b2, t1, t2);
+  }
+
+  const wrapIndex = (i: number, n: number) => ((i % n) + n) % n;
+
+  /** Position at parameter u ∈ [0, segments]. */
+  function pointAt(u: number): P {
+    const closed = toggleClosed.checked;
+    const n = pts.length;
+    const segs = closed ? n : n - 3;
+    const uu = Math.max(0, Math.min(segs - 1e-9, u));
+    const i = Math.floor(uu), f = uu - i;
+    const alpha = Number(alphaSelect.value);
+    const idx = (k: number) => closed ? pts[wrapIndex(i + k, n)] : pts[Math.max(0, Math.min(n - 1, i + k))];
+    return segment(idx(0), idx(1), idx(2), idx(3), f, alpha);
+  }
+
+  const segmentCount = () => toggleClosed.checked ? pts.length : Math.max(1, pts.length - 3);
+
+  // ---- Arc length ----------------------------------------------------------
+
+  type Table = { u: number[]; s: number[]; total: number };
+  let table: Table = { u: [], s: [], total: 0 };
+  let trueLength = 0, speedMin = 0, speedMax = 0;
+
+  /** Cumulative length at a set of sample parameters — the whole trick. */
+  function buildTable(perSegment: number): Table {
+    const segs = segmentCount();
+    const u: number[] = [0], s: number[] = [0];
+    let last = pointAt(0), total = 0;
+    const steps = segs * perSegment;
+    for (let k = 1; k <= steps; k++) {
+      const uk = k / perSegment;
+      const p = pointAt(uk);
+      total += Math.hypot(p.x - last.x, p.y - last.y);
+      last = p;
+      u.push(uk); s.push(total);
+    }
+    return { u, s, total };
+  }
+
+  /** Parameter u at distance d along the curve, read out of the table. */
+  function paramAtLength(d: number, t: Table) {
+    if (t.total <= 0) return 0;
+    const target = Math.max(0, Math.min(t.total, d));
+    let lo = 0, hi = t.s.length - 1;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (t.s[mid] <= target) lo = mid; else hi = mid;
+    }
+    const span = t.s[hi] - t.s[lo];
+    const k = span === 0 ? 0 : (target - t.s[lo]) / span;
+    return t.u[lo] + (t.u[hi] - t.u[lo]) * k;
+  }
+
+  /**
+   * |dP/du| at u. On a closed loop the sample wraps round, so the seam isn't
+   * reported as a dead stop; on an open curve it steps backwards at the end.
+   */
+  function speedAt(u: number) {
+    const segs = segmentCount(), du = 0.004;
+    const closed = toggleClosed.checked;
+    let a: P, b: P;
+    if (closed) { a = pointAt(u % segs); b = pointAt((u + du) % segs); }
+    else if (u + du < segs) { a = pointAt(u); b = pointAt(u + du); }
+    else { a = pointAt(segs - du); b = pointAt(segs - 1e-9); }
+    return Math.hypot(b.x - a.x, b.y - a.y) / du;
+  }
+
+  function measure() {
+    table = buildTable(Number(samplesInput.value));
+    const dense = buildTable(200);
+    trueLength = dense.total;
+    // Speed by parameter: |dP/du| sampled along the curve.
+    speedMin = Infinity; speedMax = 0;
+    const segs = segmentCount();
+    for (let k = 0; k < 400; k++) {
+      const v = speedAt(k / 400 * segs);
+      speedMin = Math.min(speedMin, v); speedMax = Math.max(speedMax, v);
+    }
+  }
+
+  // ---- Travellers ----------------------------------------------------------
+
+  let clock = 0, playing = !THUMB, last = performance.now();
+  const lapSeconds = () => Number(durationInput.value) / 10;
+
+  const travellerByParam = (t: number) => pointAt(t * segmentCount());
+  const travellerByLength = (t: number) => pointAt(paramAtLength(t * table.total, table));
+
+  // ---- Angles --------------------------------------------------------------
+
+  const FROM = 350, TO = 10;
+  const naiveAngle = (t: number) => FROM + (TO - FROM) * t;
+  const shortAngle = (t: number) => {
+    const delta = ((TO - FROM + 540) % 360) - 180;   // −180…180: the short way
+    return FROM + delta * t;
+  };
+
+  // ---- Drawing -------------------------------------------------------------
+
+  function layout() {
+    const w = wrap.clientWidth;
+    if (canvas.width !== w || canvas.height !== HEIGHT) {
+      const had = pts.length;
+      canvas.width = w; canvas.height = HEIGHT;
+      if (!had) pts = defaultPoints();
+    }
+    const ew = extraWrap.clientWidth;
+    const eh = 180;
+    if (extra.width !== ew || extra.height !== eh) { extra.width = ew; extra.height = eh; }
+  }
+
+  function tracePath(step = 60) {
+    const segs = segmentCount();
+    ctx.beginPath();
+    for (let k = 0; k <= segs * step; k++) {
+      const p = pointAt(k / step);
+      k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y);
+    }
+  }
+
+  function drawCurve() {
+    if (skinSelect.value === 'track') {
+      // Asphalt, kerb, dashed centre line — the curve is the same curve.
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 42;
+      tracePath(); ctx.stroke();
+      ctx.strokeStyle = '#334155'; ctx.lineWidth = 36;
+      tracePath(); ctx.stroke();
+      ctx.strokeStyle = 'rgba(248,250,252,0.85)'; ctx.lineWidth = 2;
+      ctx.setLineDash([14, 16]);
+      tracePath(); ctx.stroke();
+      ctx.setLineDash([]);
+      return;
+    }
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 2;
+    tracePath();
+    ctx.stroke();
+  }
+
+  /** A little top-down car, pointed along the curve. */
+  function drawCar(p: P, heading: number, colour: string) {
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(heading);
+    ctx.fillStyle = 'rgba(15,23,42,0.85)';
+    ctx.fillRect(-4, -9, 5, 4); ctx.fillRect(-4, 5, 5, 4);
+    ctx.fillRect(6, -9, 5, 4); ctx.fillRect(6, 5, 5, 4);
+    ctx.fillStyle = colour;
+    ctx.beginPath();
+    ctx.roundRect(-12, -7, 24, 14, 4);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(226,232,240,0.9)';
+    ctx.beginPath();
+    ctx.roundRect(1, -4.5, 6, 9, 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function headingAt(u: number) {
+    const segs = segmentCount(), du = 0.004;
+    const a = pointAt(u % segs), b = pointAt((u + du) % segs);
+    return Math.atan2(b.y - a.y, b.x - a.x);
+  }
+
+  /** Offset a point along the curve's normal, so the two strobes sit either
+   *  side of the line and their spacing can be compared directly. */
+  function offsetAt(u: number, by: number): P {
+    const segs = segmentCount(), du = 0.004;
+    const a = pointAt(u % segs), b = pointAt((u + du) % segs);
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: a.x - dy / len * by, y: a.y + dx / len * by };
+  }
+
+  function drawStrobe() {
+    const marks = 30, segs = segmentCount();
+    for (let k = 0; k < marks; k++) {
+      const t = k / marks;
+      const off = skinSelect.value === 'track' ? 26 : 10;
+      const byParam = offsetAt(t * segs, off);
+      ctx.fillStyle = 'rgba(239,68,68,0.75)';
+      ctx.beginPath(); ctx.arc(byParam.x, byParam.y, 3.2, 0, Math.PI * 2); ctx.fill();
+      if (!toggleBlue.checked) continue;
+      const byLength = offsetAt(paramAtLength(t * table.total, table), -off);
+      ctx.fillStyle = 'rgba(14,165,233,0.75)';
+      ctx.beginPath(); ctx.arc(byLength.x, byLength.y, 3.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function drawTable() {
+    for (let k = 0; k < table.u.length; k++) {
+      const p = pointAt(table.u[k]);
+      ctx.strokeStyle = 'rgba(100,116,139,0.8)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(p.x - 4, p.y - 4); ctx.lineTo(p.x + 4, p.y + 4);
+      ctx.moveTo(p.x + 4, p.y - 4); ctx.lineTo(p.x - 4, p.y + 4);
+      ctx.stroke();
+    }
+    // The straight chords between table entries are what the lookup assumes.
+    ctx.strokeStyle = 'rgba(100,116,139,0.45)';
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    for (let k = 0; k < table.u.length; k++) {
+      const p = pointAt(table.u[k]);
+      k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function drawMain() {
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    drawCurve();
+    if (toggleLut.checked) drawTable();
+    if (toggleStrobe.checked) drawStrobe();
+
+    ctx.fillStyle = KEY;
+    for (const p of pts) {
+      ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, Math.PI * 2); ctx.stroke();
+    }
+
+    const t = clock;
+    const segs = segmentCount();
+    const uParam = t * segs, uLength = paramAtLength(t * table.total, table);
+    const a = pointAt(uParam % segs), b = pointAt(uLength % segs);
+    const showBlue = toggleBlue.checked;
+    if (showBlue) {
+      ctx.strokeStyle = 'rgba(15,23,42,0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    if (skinSelect.value === 'track') {
+      if (showBlue) drawCar(b, headingAt(uLength), BY_LENGTH);
+      drawCar(a, headingAt(uParam), BY_PARAM);
+    } else {
+      if (showBlue) {
+        ctx.fillStyle = BY_LENGTH;
+        ctx.beginPath(); ctx.arc(b.x, b.y, 9, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = BY_PARAM;
+      ctx.beginPath(); ctx.arc(a.x, a.y, 9, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function drawExtra() {
+    const g = ectx, w = extra.width, h = extra.height;
+    g.fillStyle = '#f8fafc';
+    g.fillRect(0, 0, w, h);
+    const split = Math.max(200, Math.round(w * 0.62));
+
+    // Speed profile.
+    const padL = 34, padT = 18, padB = 24;
+    const segs = segmentCount();
+    g.font = '10px ui-monospace, monospace';
+    g.fillStyle = '#64748b'; g.textAlign = 'left'; g.textBaseline = 'top';
+    g.fillText('speed along the curve', padL, 4);
+    const X = (t: number) => padL + t * (split - padL - 20);
+    const Y = (v: number) => h - padB - (v / (speedMax || 1)) * (h - padT - padB);
+    g.strokeStyle = '#e2e8f0'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(padL, h - padB); g.lineTo(split - 20, h - padB); g.stroke();
+    g.strokeStyle = BY_PARAM; g.lineWidth = 1.8;
+    g.beginPath();
+    for (let k = 0; k <= 120; k++) {
+      const t = k / 120, v = speedAt(t * segs);
+      k ? g.lineTo(X(t), Y(v)) : g.moveTo(X(t), Y(v));
+    }
+    g.stroke();
+    const flat = trueLength / (segs || 1);
+    g.strokeStyle = BY_LENGTH; g.lineWidth = 1.8;
+    g.beginPath(); g.moveTo(X(0), Y(flat)); g.lineTo(X(1), Y(flat)); g.stroke();
+    g.fillStyle = '#94a3b8'; g.textAlign = 'center'; g.textBaseline = 'top';
+    g.fillText('one lap', (padL + split - 20) / 2, h - padB + 6);
+
+    // Angle dials.
+    const cy = h / 2, r = Math.min(46, (h - 40) / 2);
+    const dials: [number, number, string][] = [
+      [split + (w - split) * 0.3, naiveAngle(clock), BY_PARAM],
+      [split + (w - split) * 0.75, shortAngle(clock), BY_LENGTH],
+    ];
+    const labels = ['naive: 340° the long way', 'short way: 20°'];
+    dials.forEach(([cx, angle, colour], i) => {
+      g.strokeStyle = '#e2e8f0'; g.lineWidth = 2;
+      g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
+      g.strokeStyle = 'rgba(100,116,139,0.5)'; g.lineWidth = 1;
+      for (const a of [FROM, TO]) {
+        const rad = (a - 90) * Math.PI / 180;
+        g.beginPath();
+        g.moveTo(cx + Math.cos(rad) * (r - 6), cy + Math.sin(rad) * (r - 6));
+        g.lineTo(cx + Math.cos(rad) * r, cy + Math.sin(rad) * r);
+        g.stroke();
+      }
+      const rad = (angle - 90) * Math.PI / 180;
+      g.strokeStyle = colour; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(rad) * (r - 4), cy + Math.sin(rad) * (r - 4)); g.stroke();
+      g.fillStyle = colour; g.textAlign = 'center'; g.textBaseline = 'top';
+      g.font = '10px ui-monospace, monospace';
+      g.fillText(labels[i], cx, cy + r + 6);
+    });
+  }
+
+  function updateStats() {
+    $('sl-samples-val').textContent = samplesInput.value;
+    $('sl-duration-val').textContent = `${lapSeconds().toFixed(1)} s`;
+    $('sl-stat-length').textContent = `${Math.round(trueLength)} px`;
+    const lap = lapSeconds();
+    $('sl-stat-speed').textContent = `${Math.round(speedMin / lap)}–${Math.round(speedMax / lap)} px/s`;
+    $('sl-stat-ratio').textContent = `${(speedMax / Math.max(1e-6, speedMin)).toFixed(1)}×`;
+    const err = trueLength > 0 ? (trueLength - table.total) / trueLength * 100 : 0;
+    $('sl-stat-error').textContent = `${err.toFixed(2)}% short`;
+    $('sl-alpha-note').textContent =
+      alphaSelect.value === '0' ? 'Uniform: can loop or cusp when points bunch up.'
+      : alphaSelect.value === '1' ? 'Chordal: wide, lazy arcs through tight turns.'
+      : 'Centripetal: never loops or cusps between points.';
+  }
+
+  // ---- Dragging ------------------------------------------------------------
+
+  let held = -1;
+  function toCanvas(ev: PointerEvent) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (ev.clientX - rect.left) * canvas.width / rect.width,
+      y: (ev.clientY - rect.top) * canvas.height / rect.height,
+      scale: canvas.width / rect.width,
+    };
+  }
+  canvas.addEventListener('pointerdown', (ev) => {
+    const { x, y, scale } = toCanvas(ev);
+    const reach = 22 * scale;
+    let best = -1, bestD = reach * reach;
+    pts.forEach((p, i) => {
+      const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    if (best < 0) return;
+    held = best;
+    canvas.setPointerCapture(ev.pointerId);
+    ev.preventDefault();
+  });
+  canvas.addEventListener('pointermove', (ev) => {
+    if (held < 0) return;
+    const { x, y } = toCanvas(ev);
+    pts[held] = { x: Math.max(8, Math.min(canvas.width - 8, x)), y: Math.max(8, Math.min(canvas.height - 8, y)) };
+    measure();
+  });
+  const release = () => { held = -1; };
+  canvas.addEventListener('pointerup', release);
+  canvas.addEventListener('pointercancel', release);
+
+  // ---- Loop ----------------------------------------------------------------
+
+  function frame(now: number) {
+    const dt = Math.min(0.1, (now - last) / 1000);
+    last = now;
+    layout();
+    if (playing) clock = (clock + dt / lapSeconds()) % 1;
+    drawMain();
+    drawExtra();
+    updateStats();
+    requestAnimationFrame(frame);
+  }
+
+  function setPlaying(on: boolean) {
+    playing = on;
+    btnPlay.textContent = on ? '❚❚ Pause' : '▶ Play';
+  }
+
+  btnPlay.addEventListener('click', () => setPlaying(!playing));
+  $('sl-reset').addEventListener('click', () => { pts = defaultPoints(); measure(); });
+  [alphaSelect, toggleClosed].forEach((el) => el.addEventListener('change', measure));
+  skinSelect.addEventListener('change', () => {
+    $('sl-step-info').textContent = skinSelect.value === 'track'
+      ? 'Same curve, same two runners — one keeps a steady lap pace, the other does not.'
+      : 'Drag the key points. The curve passes through every one of them.';
+  });
+  samplesInput.addEventListener('input', measure);
+
+  const params = new URLSearchParams(location.search);
+  const urlAlpha = params.get('alpha');
+  if (urlAlpha && [...alphaSelect.options].some((o) => o.value === urlAlpha)) alphaSelect.value = urlAlpha;
+  if (params.get('samples')) samplesInput.value = params.get('samples')!;
+  if (params.get('lut') === '1') toggleLut.checked = true;
+  if (params.get('open') === '1') toggleClosed.checked = false;
+  if (params.get('blue') === '0') toggleBlue.checked = false;
+  const urlSkin = params.get('skin');
+  if (urlSkin && [...skinSelect.options].some((o) => o.value === urlSkin)) skinSelect.value = urlSkin;
+
+  layout();
+  pts = defaultPoints();
+  measure();
+  const urlT = Number(params.get('t'));
+  if (params.has('t') && urlT >= 0 && urlT <= 1) clock = urlT;
+  setPlaying(playing);
+
+  requestAnimationFrame(frame);
+</script>

@@ -6,6 +6,12 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.16.0] — 2026-09-19
+
+### Added
+- **Splines & Arc Length** playground — Catmull–Rom through draggable key points with uniform, centripetal and chordal knot spacing, and two travellers on the same loop: one even in the curve's parameter, one even in arc length. The arc-length table is adjustable down to two samples per segment and reports how much length it misses; a speed graph shows the whole profile, and a pair of dials interpolates 350° → 10° the naive way and the short way. Two skins, a bare line and a race track with the runners as cars, and the arc-length runner can be hidden. Links both ways with the easing page, which makes the same point one floor down.
+
+
 ## [0.15.0] — 2026-09-19
 
 ### Added

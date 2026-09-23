@@ -15,6 +15,7 @@ import AStar from './AStar.astro';
 import Easing from './Easing.astro';
 import Springs from './Springs.astro';
 import Verlet from './Verlet.astro';
+import Splines from './Splines.astro';
 
 export const islands: Record<string, any> = {
   'perlin-noise': PerlinNoise,
@@ -34,4 +35,5 @@ export const islands: Record<string, any> = {
   easing: Easing,
   springs: Springs,
   verlet: Verlet,
+  splines: Splines,
 };

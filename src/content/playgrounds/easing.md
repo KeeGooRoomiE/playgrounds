@@ -119,6 +119,12 @@ off where the slope is almost zero. Bisection never fails but needs about twenty
 steps for the same precision. Real implementations do exactly what this one
 does: try Newton, fall back to bisection.
 
+### The same trap, one floor up
+
+A curve's parameter isn't time here; on a path through space it isn't distance
+either, and an object moving evenly in the parameter speeds up and slows down on
+its own. [Splines & Arc Length](../splines/) is that problem and its fix.
+
 ### What one cubic can't do
 
 A cubic Bézier turns back at most twice, so it can't bounce three times or
