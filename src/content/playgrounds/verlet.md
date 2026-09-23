@@ -125,8 +125,8 @@ decision as much as an art one.
 ### Inverse kinematics is the same trick
 
 Pulling a chain of links toward a target with the same "fix each link in turn"
-loop is FABRIK, the standard inverse-kinematics solver for arms and legs. The
-rope here is that chain with no target, under gravity.
+loop is FABRIK, the standard [inverse-kinematics](../inverse-kinematics/) solver
+for arms and legs. The rope here is that chain with no target, under gravity.
 
 ## Real-World Applications
 

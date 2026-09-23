@@ -16,6 +16,7 @@ import Easing from './Easing.astro';
 import Springs from './Springs.astro';
 import Verlet from './Verlet.astro';
 import Splines from './Splines.astro';
+import InverseKinematics from './InverseKinematics.astro';
 
 export const islands: Record<string, any> = {
   'perlin-noise': PerlinNoise,
@@ -36,4 +37,5 @@ export const islands: Record<string, any> = {
   springs: Springs,
   verlet: Verlet,
   splines: Splines,
+  'inverse-kinematics': InverseKinematics,
 };

@@ -1,0 +1,456 @@
+---
+---
+<div class="playground">
+  <div class="controls">
+    <div>
+      <div class="ctrl-label">Skin</div>
+      <select id="ik-skin">
+        <option value="tentacle">Tentacle</option>
+        <option value="bones">Bones — the plain view</option>
+        <option value="arm">Robot arm</option>
+        <option value="lamp">Desk lamp</option>
+      </select>
+      <div class="ctrl-label" style="margin-top:10px">Chains</div>
+      <select id="ik-chains">
+        <option value="1" selected>One</option>
+        <option value="3">Three</option>
+        <option value="5">Five</option>
+      </select>
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="range-value"><span class="range-label">Bones</span><span class="range-number" id="ik-bones-val">14</span></div>
+      <input type="range" id="ik-bones" min="2" max="40" value="14" step="1" />
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Max bend per joint</span><span class="range-number" id="ik-bend-val">free</span></div>
+      <input type="range" id="ik-bend" min="5" max="180" value="180" step="5" />
+      <div class="range-value" style="margin-top:8px"><span class="range-label">Passes per frame</span><span class="range-number" id="ik-iter-val">10</span></div>
+      <input type="range" id="ik-iter" min="1" max="30" value="10" step="1" />
+    </div>
+
+    <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="ctrl-label">Show</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="toggle-row">
+          <span class="toggle-label">Ghost of each pass</span>
+          <label class="toggle"><input type="checkbox" id="ik-toggle-ghost" /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Reach circle</span>
+          <label class="toggle"><input type="checkbox" id="ik-toggle-reach" checked /><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Target follows the pointer</span>
+          <label class="toggle"><input type="checkbox" id="ik-toggle-follow" checked /><span class="slider"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      <button type="button" class="btn primary" id="ik-step">→ One pass</button>
+      <button type="button" class="btn" id="ik-reset">↺ Straighten</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-row"><span>Bones</span><span class="stat-val" id="ik-stat-bones">—</span></div>
+      <div class="stat-row"><span>Passes used</span><span class="stat-val" id="ik-stat-passes">—</span></div>
+      <div class="stat-row"><span>Miss distance</span><span class="stat-val" id="ik-stat-error">—</span></div>
+      <div class="stat-row"><span>Reach used</span><span class="stat-val" id="ik-stat-reach">—</span></div>
+      <div class="stat-row"><span>Status</span><span class="stat-val" id="ik-stat-status">—</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="ctrl-label">Legend</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#f59e0b"></span> Target — move the pointer</div>
+      <div class="legend-item"><span class="legend-dot" style="background:#0ea5e9"></span> Base — the chain always returns here</div>
+      <div class="legend-item"><span class="legend-dot" style="background:rgba(148,163,184,0.7)"></span> Ghost of an earlier pass</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="canvas-wrap" id="ik-wrap">
+      <canvas id="ik-canvas"></canvas>
+    </div>
+    <div class="step-info" id="ik-step-info">Move the pointer — the chain reaches for it.</div>
+  </div>
+</div>
+
+<style>
+  .stats { background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  canvas { width: auto; height: auto; display: block; max-width: 100%; touch-action: none; cursor: crosshair; }
+  .legend-dot { border-radius: 2px; width: 12px; height: 12px; }
+  .step-info { margin-top: 8px; font-size: 11px; color: var(--muted); text-align: center; min-height: 16px; }
+</style>
+
+<script>
+  import { isThumbnailMode } from '../lib/seed';
+
+  const THUMB = isThumbnailMode();
+  const $ = (id: string) => document.getElementById(id)!;
+  const canvas = $('ik-canvas') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d')!;
+  const wrap = $('ik-wrap')!;
+
+  const skinSelect = $('ik-skin') as HTMLSelectElement;
+  const chainsSelect = $('ik-chains') as HTMLSelectElement;
+  const bonesInput = $('ik-bones') as HTMLInputElement;
+  const bendInput = $('ik-bend') as HTMLInputElement;
+  const iterInput = $('ik-iter') as HTMLInputElement;
+  const toggleGhost = $('ik-toggle-ghost') as HTMLInputElement;
+  const toggleReach = $('ik-toggle-reach') as HTMLInputElement;
+  const toggleFollow = $('ik-toggle-follow') as HTMLInputElement;
+
+  const HEIGHT = 480;
+  const TOLERANCE = 0.5;
+
+  type P = { x: number; y: number };
+  type Chain = { pts: P[]; lengths: number[]; base: P; passes: number; error: number; ghosts: P[][] };
+
+  let chains: Chain[] = [];
+  let target: P = { x: 0, y: 0 };
+
+  function build() {
+    const n = Number(bonesInput.value);
+    const count = Number(chainsSelect.value);
+    const W = canvas.width, H = canvas.height;
+    const span = Math.min(W * 0.72, (H - 90) * 1.5);
+    const boneLength = span / n;
+    chains = [];
+    for (let c = 0; c < count; c++) {
+      const bx = W * (count === 1 ? 0.5 : 0.18 + 0.64 * (c / (count - 1)));
+      const base = { x: bx, y: H - 26 };
+      const pts: P[] = [], lengths: number[] = [];
+      for (let i = 0; i <= n; i++) pts.push({ x: base.x, y: base.y - i * boneLength });
+      for (let i = 0; i < n; i++) lengths.push(boneLength);
+      chains.push({ pts, lengths, base, passes: 0, error: 0, ghosts: [] });
+    }
+  }
+
+  const dist = (a: P, b: P) => Math.hypot(b.x - a.x, b.y - a.y);
+  const reachOf = (c: Chain) => c.lengths.reduce((s, l) => s + l, 0);
+
+  /** Move `from` toward `to` until it is exactly `len` away from `to`. */
+  function pull(from: P, to: P, len: number): P {
+    const d = dist(to, from) || 1e-6;
+    const k = len / d;
+    return { x: to.x + (from.x - to.x) * k, y: to.y + (from.y - to.y) * k };
+  }
+
+  /** Clamp a joint so the new bone turns no more than `maxTurn` from the last. */
+  function limit(prev: P, joint: P, next: P, len: number, maxTurn: number): P {
+    if (maxTurn >= Math.PI) return next;
+    const inAngle = Math.atan2(joint.y - prev.y, joint.x - prev.x);
+    const outAngle = Math.atan2(next.y - joint.y, next.x - joint.x);
+    let delta = ((outAngle - inAngle + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    if (Math.abs(delta) <= maxTurn) return next;
+    const clamped = inAngle + Math.sign(delta) * maxTurn;
+    return { x: joint.x + Math.cos(clamped) * len, y: joint.y + Math.sin(clamped) * len };
+  }
+
+  /**
+   * One FABRIK pass: pull the tip onto the target and drag the rest along
+   * (backwards), then pin the base again and rebuild the chain forwards. No
+   * angles are solved for; every step is "move this point to that distance".
+   */
+  function pass(c: Chain, goal: P, maxTurn: number) {
+    const n = c.pts.length - 1;
+    // Backward: tip first.
+    c.pts[n] = { ...goal };
+    for (let i = n - 1; i >= 0; i--) c.pts[i] = pull(c.pts[i], c.pts[i + 1], c.lengths[i]);
+    // Forward: base first.
+    c.pts[0] = { ...c.base };
+    for (let i = 1; i <= n; i++) {
+      let next = pull(c.pts[i], c.pts[i - 1], c.lengths[i - 1]);
+      if (i >= 2) next = limit(c.pts[i - 2], c.pts[i - 1], next, c.lengths[i - 1], maxTurn);
+      c.pts[i] = next;
+    }
+  }
+
+  function solve(c: Chain, goal: P) {
+    const reach = reachOf(c);
+    const maxTurn = Number(bendInput.value) * Math.PI / 180;
+    c.ghosts = [];
+    c.passes = 0;
+    if (dist(c.base, goal) > reach) {
+      // Out of reach: the answer is a straight line, no iteration needed.
+      const dir = Math.atan2(goal.y - c.base.y, goal.x - c.base.x);
+      c.pts[0] = { ...c.base };
+      for (let i = 1; i < c.pts.length; i++) {
+        c.pts[i] = {
+          x: c.pts[i - 1].x + Math.cos(dir) * c.lengths[i - 1],
+          y: c.pts[i - 1].y + Math.sin(dir) * c.lengths[i - 1],
+        };
+      }
+      c.error = dist(c.pts[c.pts.length - 1], goal);
+      return;
+    }
+    const limitPasses = Number(iterInput.value);
+    for (let k = 0; k < limitPasses; k++) {
+      if (dist(c.pts[c.pts.length - 1], goal) < TOLERANCE) break;
+      pass(c, goal, maxTurn);
+      c.passes++;
+      if (toggleGhost.checked) c.ghosts.push(c.pts.map((p) => ({ ...p })));
+    }
+    c.error = dist(c.pts[c.pts.length - 1], goal);
+  }
+
+  function solveAll() {
+    for (const c of chains) solve(c, target);
+  }
+
+  // ---- Skins ---------------------------------------------------------------
+
+  function smoothPath(pts: P[]) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+      const mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+    }
+    const last = pts[pts.length - 1];
+    ctx.lineTo(last.x, last.y);
+  }
+
+  function drawTentacle(c: Chain, index: number) {
+    const n = c.pts.length;
+    const hue = 188 + index * 26;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (let i = 0; i < n - 1; i++) {
+      const t = i / (n - 1);
+      ctx.strokeStyle = `hsl(${hue} ${62 - 18 * t}% ${34 + 30 * t}%)`;
+      ctx.lineWidth = Math.max(2, 26 * (1 - t) + 3);
+      ctx.beginPath();
+      ctx.moveTo(c.pts[i].x, c.pts[i].y);
+      ctx.lineTo(c.pts[i + 1].x, c.pts[i + 1].y);
+      ctx.stroke();
+    }
+    // Suckers down one side.
+    for (let i = 1; i < n - 1; i++) {
+      const t = i / (n - 1);
+      const dx = c.pts[i + 1].x - c.pts[i - 1].x, dy = c.pts[i + 1].y - c.pts[i - 1].y;
+      const len = Math.hypot(dx, dy) || 1;
+      const off = (1 - t) * 7 + 1;
+      ctx.fillStyle = `hsla(${hue + 14} 70% 82% / 0.85)`;
+      ctx.beginPath();
+      ctx.arc(c.pts[i].x - dy / len * off, c.pts[i].y + dx / len * off, Math.max(1.2, 3.4 * (1 - t)), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawBones(c: Chain) {
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 2;
+    smoothPath(c.pts);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(51,65,85,0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    c.pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+    ctx.stroke();
+    ctx.fillStyle = '#e2e8f0';
+    for (const p of c.pts) {
+      ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#334155'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
+  function drawArm(c: Chain) {
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (let i = 0; i < c.pts.length - 1; i++) {
+      ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 14;
+      ctx.beginPath(); ctx.moveTo(c.pts[i].x, c.pts[i].y); ctx.lineTo(c.pts[i + 1].x, c.pts[i + 1].y); ctx.stroke();
+      ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 8;
+      ctx.beginPath(); ctx.moveTo(c.pts[i].x, c.pts[i].y); ctx.lineTo(c.pts[i + 1].x, c.pts[i + 1].y); ctx.stroke();
+    }
+    for (const p of c.pts) {
+      ctx.fillStyle = '#475569';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#cbd5e1';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2); ctx.fill();
+    }
+    const tip = c.pts[c.pts.length - 1], prev = c.pts[c.pts.length - 2];
+    const a = Math.atan2(tip.y - prev.y, tip.x - prev.x);
+    ctx.strokeStyle = '#475569'; ctx.lineWidth = 4;
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(tip.x, tip.y);
+      ctx.lineTo(tip.x + Math.cos(a + side * 0.6) * 16, tip.y + Math.sin(a + side * 0.6) * 16);
+      ctx.stroke();
+    }
+  }
+
+  function drawLamp(c: Chain) {
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#1f2937'; ctx.lineWidth = 7;
+    ctx.beginPath();
+    c.pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+    ctx.stroke();
+    ctx.fillStyle = '#374151';
+    for (const p of c.pts) { ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, Math.PI * 2); ctx.fill(); }
+    const tip = c.pts[c.pts.length - 1], prev = c.pts[c.pts.length - 2];
+    const a = Math.atan2(tip.y - prev.y, tip.x - prev.x);
+    // Shade and a cone of light, pointing wherever the last bone points.
+    const cone = ctx.createRadialGradient(tip.x, tip.y, 4, tip.x, tip.y, 190);
+    cone.addColorStop(0, 'rgba(250,204,21,0.45)');
+    cone.addColorStop(1, 'rgba(250,204,21,0)');
+    ctx.fillStyle = cone;
+    ctx.beginPath();
+    ctx.moveTo(tip.x, tip.y);
+    ctx.arc(tip.x, tip.y, 190, a - 0.42, a + 0.42);
+    ctx.closePath();
+    ctx.fill();
+    ctx.save();
+    ctx.translate(tip.x, tip.y); ctx.rotate(a);
+    ctx.fillStyle = '#1f2937';
+    ctx.beginPath();
+    ctx.moveTo(-6, -13); ctx.lineTo(16, -20); ctx.lineTo(16, 20); ctx.lineTo(-6, 13);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawChain(c: Chain, index: number) {
+    const skin = skinSelect.value;
+    if (skin === 'tentacle') drawTentacle(c, index);
+    else if (skin === 'arm') drawArm(c);
+    else if (skin === 'lamp') drawLamp(c);
+    else drawBones(c);
+  }
+
+  function render() {
+    const W = canvas.width, H = canvas.height;
+    const skin = skinSelect.value;
+    ctx.fillStyle = skin === 'lamp' ? '#111827' : '#f8fafc';
+    ctx.fillRect(0, 0, W, H);
+
+    // Floor the bases sit on.
+    ctx.fillStyle = skin === 'lamp' ? '#1f2937' : '#e2e8f0';
+    ctx.fillRect(0, H - 18, W, 18);
+
+    if (toggleReach.checked && chains[0]) {
+      ctx.strokeStyle = 'rgba(14,165,233,0.35)';
+      ctx.setLineDash([5, 5]); ctx.lineWidth = 1;
+      for (const c of chains) {
+        ctx.beginPath(); ctx.arc(c.base.x, c.base.y, reachOf(c), 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+
+    for (const c of chains) {
+      if (toggleGhost.checked) {
+        c.ghosts.forEach((g, k) => {
+          ctx.strokeStyle = `rgba(148,163,184,${0.15 + 0.5 * (k + 1) / c.ghosts.length})`;
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          g.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+          ctx.stroke();
+        });
+      }
+    }
+
+    chains.forEach(drawChain);
+
+    for (const c of chains) {
+      ctx.fillStyle = '#0ea5e9';
+      ctx.beginPath(); ctx.arc(c.base.x, c.base.y, 7, 0, Math.PI * 2); ctx.fill();
+    }
+
+    ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(target.x, target.y, 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(target.x - 14, target.y); ctx.lineTo(target.x + 14, target.y);
+    ctx.moveTo(target.x, target.y - 14); ctx.lineTo(target.x, target.y + 14);
+    ctx.stroke();
+
+    const c0 = chains[0];
+    const reach = c0 ? reachOf(c0) : 1;
+    const used = c0 ? dist(c0.base, target) / reach : 0;
+    $('ik-stat-bones').textContent = String(Number(bonesInput.value) * chains.length);
+    $('ik-stat-passes').textContent = c0 ? String(c0.passes) : '—';
+    $('ik-stat-error').textContent = c0 ? `${c0.error.toFixed(1)} px` : '—';
+    $('ik-stat-reach').textContent = `${Math.round(used * 100)}%`;
+    $('ik-stat-status').textContent = !c0 ? '—'
+      : used > 1 ? 'Out of reach — straight line'
+      : c0.error < TOLERANCE ? `Reached in ${c0.passes} pass${c0.passes === 1 ? '' : 'es'}`
+      : 'Still converging';
+    $('ik-bones-val').textContent = bonesInput.value;
+    $('ik-iter-val').textContent = iterInput.value;
+    $('ik-bend-val').textContent = Number(bendInput.value) >= 180 ? 'free' : `${bendInput.value}°`;
+  }
+
+  // ---- Pointer -------------------------------------------------------------
+
+  function toCanvas(ev: PointerEvent) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (ev.clientX - rect.left) * canvas.width / rect.width,
+      y: (ev.clientY - rect.top) * canvas.height / rect.height,
+    };
+  }
+  canvas.addEventListener('pointermove', (ev) => {
+    if (!toggleFollow.checked) return;
+    target = toCanvas(ev);
+  });
+  canvas.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    canvas.setPointerCapture(ev.pointerId);
+    target = toCanvas(ev);
+    if (!toggleFollow.checked) $('ik-step-info').textContent = 'Target moved. Press "One pass" to watch the chain crawl toward it.';
+  });
+
+  // ---- Loop ----------------------------------------------------------------
+
+  function resize() {
+    const w = wrap.clientWidth;
+    if (canvas.width === w && canvas.height === HEIGHT) return false;
+    canvas.width = w; canvas.height = HEIGHT;
+    return true;
+  }
+
+  function frame() {
+    if (resize()) { build(); target = { x: canvas.width * 0.7, y: canvas.height * 0.3 }; }
+    // A capture keeps the single solve done at startup, so its pass count and
+    // ghosts survive into the still.
+    if (toggleFollow.checked && !THUMB) solveAll();
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  bonesInput.addEventListener('input', build);
+  chainsSelect.addEventListener('change', build);
+  $('ik-reset').addEventListener('click', () => {
+    build();
+    $('ik-step-info').textContent = 'Straightened. With "Target follows the pointer" off, step it one pass at a time.';
+  });
+  $('ik-step').addEventListener('click', () => {
+    const maxTurn = Number(bendInput.value) * Math.PI / 180;
+    for (const c of chains) {
+      pass(c, target, maxTurn);
+      c.passes++;
+      c.error = dist(c.pts[c.pts.length - 1], target);
+      if (toggleGhost.checked) c.ghosts.push(c.pts.map((p) => ({ ...p })));
+    }
+  });
+
+  const params = new URLSearchParams(location.search);
+  for (const [key, select] of [['skin', skinSelect], ['chains', chainsSelect]] as const) {
+    const v = params.get(key);
+    if (v && [...select.options].some((o) => o.value === v)) select.value = v;
+  }
+  for (const [key, input] of [['bones', bonesInput], ['bend', bendInput], ['passes', iterInput]] as const) {
+    const v = params.get(key);
+    if (v !== null && !Number.isNaN(Number(v))) input.value = v;
+  }
+  if (params.get('ghost') === '1') toggleGhost.checked = true;
+  if (params.get('reach') === '0') toggleReach.checked = false;
+
+  resize();
+  build();
+  target = { x: canvas.width * 0.7, y: canvas.height * 0.3 };
+  const tx = Number(params.get('tx')), ty = Number(params.get('ty'));
+  if (params.has('tx')) target = { x: canvas.width * tx, y: canvas.height * ty };
+  // A capture solves once from the straightened chain, so the pass counter and
+  // the ghosts show the convergence rather than a chain already sitting still.
+  solveAll();
+
+  requestAnimationFrame(frame);
+</script>

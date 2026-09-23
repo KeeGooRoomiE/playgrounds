@@ -6,6 +6,12 @@ Versioning: [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.17.0] — 2026-09-23
+
+### Added
+- **Inverse Kinematics** playground — FABRIK reaching for the pointer: a backward pass from the tip and a forward pass from the base, per-joint bend limits, a pass-by-pass ghost trail, an honest pass counter and the straight-line answer when the target is out of reach. One, three or five chains, and four skins (tentacle, bones, robot arm, desk lamp). Links both ways with Verlet Cloth, which relaxes the same kind of constraint.
+
+
 ## [0.16.0] — 2026-09-19
 
 ### Added
